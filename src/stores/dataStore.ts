@@ -52,12 +52,19 @@ export const useDataStore = create<DataState>((set, get) => ({
   searchTerm: '',
 
   fetchInitialData: async () => {
+    console.log('Fetching initial data...');
     try {
       const [projects, resources, allocations] = await Promise.all([
         db.projects.list(),
         db.resources.list(),
         db.allocations.list(),
       ]);
+      
+      console.log('Initial data fetched successfully:', {
+        projectsCount: projects.length,
+        resourcesCount: resources.length,
+        allocationsCount: allocations.length
+      });
       
       set({ projects, resources, allocations });
       projectFuse.setCollection(projects);
@@ -67,6 +74,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       set({ projects: [], resources: [], allocations: [] });
       projectFuse.setCollection([]);
       resourceFuse.setCollection([]);
+      throw error;
     }
   },
 
@@ -333,19 +341,35 @@ export const useDataStore = create<DataState>((set, get) => ({
   },
 
   removeResourceFromProject: async (projectId: string, resourceId: string) => {
+    console.log('Starting removeResourceFromProject:', { projectId, resourceId });
+    
     try {
+      // Step 1: Get all allocations for this resource in this project
       const { allocations } = get();
       const allocationIds = allocations
         .filter(a => a.project_id === projectId && a.resource_id === resourceId)
         .map(a => a.id);
+      
+      console.log('Found allocations to delete:', allocationIds);
 
-      // Delete all allocations for this resource in this project
-      await Promise.all(allocationIds.map(id => db.allocations.delete(id)));
+      // Step 2: Delete allocations one by one with error handling
+      for (const id of allocationIds) {
+        try {
+          console.log('Deleting allocation:', id);
+          await db.allocations.delete(id);
+          console.log('Successfully deleted allocation:', id);
+        } catch (error) {
+          console.error('Failed to delete allocation:', id, error);
+          throw error;
+        }
+      }
 
-      // Update local state
+      // Step 3: Update local state
+      console.log('Updating local state...');
       set(state => {
         const project = state.projects.find(p => p.id === projectId);
         if (project && project.resource_order) {
+          console.log('Updating project resource order');
           const updatedProject = {
             ...project,
             resource_order: project.resource_order.filter(id => id !== resourceId)
@@ -367,29 +391,32 @@ export const useDataStore = create<DataState>((set, get) => ({
         };
       });
 
-      // Update resource order in database
+      // Step 4: Update resource order in database
       const project = get().projects.find(p => p.id === projectId);
       if (project && project.resource_order) {
+        console.log('Updating resource order in database');
         await db.projects.updateResourceOrder(
           projectId,
           project.resource_order.filter(id => id !== resourceId)
         );
       }
 
-      // Verify the deletion was successful by refreshing the data
+      // Step 5: Verify the deletion
+      console.log('Verifying deletion...');
       await get().fetchInitialData();
 
-      // Check if the resource was actually removed
       const verifyAllocations = get().allocations.some(
         a => a.project_id === projectId && a.resource_id === resourceId
       );
 
       if (verifyAllocations) {
+        console.error('Verification failed: Resource still has allocations');
         throw new Error('Failed to remove resource from project. Please try again.');
       }
 
+      console.log('Successfully removed resource from project');
     } catch (error) {
-      // Refresh data to ensure UI is in sync with database
+      console.error('Error in removeResourceFromProject:', error);
       await get().fetchInitialData();
       throw error;
     }
