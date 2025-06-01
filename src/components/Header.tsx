@@ -1,7 +1,7 @@
 import { LogOut } from 'lucide-react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
 interface HeaderProps {
@@ -44,11 +44,11 @@ export function Header({ session }: HeaderProps) {
     <header className="bg-white shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center">
+          <Link to="/dashboard" className="flex items-center group">
             <img 
               src="/logo union agener.jpg" 
               alt="Union Agener Logo" 
-              className="h-10 w-auto"
+              className="h-10 w-auto transition-transform duration-200 group-hover:scale-105"
             />
             <div className="ml-4">
               <h1 className="text-2xl font-semibold text-gray-900">
@@ -58,7 +58,7 @@ export function Header({ session }: HeaderProps) {
                 {isResourceMatrix ? 'CapEx Resource Planning Tool' : 'Enterprise Resource Management'}
               </p>
             </div>
-          </div>
+          </Link>
           <div className="flex items-center space-x-4">
             <span className="text-sm text-gray-600">{session.user.email}</span>
             <button
