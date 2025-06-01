@@ -65,7 +65,7 @@ export const useDataStore = create<DataState>((set, get) => ({
         resourcesCount: resources.length,
         allocationsCount: allocations.length
       });
-      
+
       set({ projects, resources, allocations });
       projectFuse.setCollection(projects);
       resourceFuse.setCollection(resources);
@@ -74,7 +74,6 @@ export const useDataStore = create<DataState>((set, get) => ({
       set({ projects: [], resources: [], allocations: [] });
       projectFuse.setCollection([]);
       resourceFuse.setCollection([]);
-      throw error;
     }
   },
 
@@ -155,7 +154,6 @@ export const useDataStore = create<DataState>((set, get) => ({
       const project = projects.find(p => p.id === projectId);
       
       if (!project) {
-        await get().fetchInitialData();
         throw new Error('Project not found');
       }
 
@@ -187,7 +185,7 @@ export const useDataStore = create<DataState>((set, get) => ({
         return { allocations: [...state.allocations, newAllocation] };
       });
     } catch (error) {
-      await get().fetchInitialData();
+      console.error('Error updating allocation:', error);
       throw error;
     }
   },
@@ -238,11 +236,8 @@ export const useDataStore = create<DataState>((set, get) => ({
         get().clearInvalidAllocations(projectId);
       }
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to update project: ${error.message}`);
-      }
-      throw new Error('Failed to update project');
+      console.error('Error updating project:', error);
+      throw error;
     }
   },
 
@@ -258,11 +253,8 @@ export const useDataStore = create<DataState>((set, get) => ({
         return { resources: updatedResources };
       });
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to update resource: ${error.message}`);
-      }
-      throw new Error('Failed to update resource');
+      console.error('Error updating resource:', error);
+      throw error;
     }
   },
 
@@ -287,20 +279,20 @@ export const useDataStore = create<DataState>((set, get) => ({
   },
 
   addResourceToProject: async (projectId: string, resourceId: string) => {
-    const { allocations, projects } = get();
-    const existingAllocation = allocations.find(
-      a => a.project_id === projectId && a.resource_id === resourceId
-    );
-
-    if (existingAllocation) {
-      throw new Error('Resource is already assigned to this project');
-    }
-
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentQuarter = Math.floor(currentDate.getMonth() / 3) + 1;
-
     try {
+      const { allocations, projects } = get();
+      const existingAllocation = allocations.find(
+        a => a.project_id === projectId && a.resource_id === resourceId
+      );
+
+      if (existingAllocation) {
+        throw new Error('Resource is already assigned to this project');
+      }
+
+      const currentDate = new Date();
+      const currentYear = currentDate.getFullYear();
+      const currentQuarter = Math.floor(currentDate.getMonth() / 3) + 1;
+
       const newAllocation = await db.allocations.create({
         project_id: projectId,
         resource_id: resourceId,
@@ -332,11 +324,8 @@ export const useDataStore = create<DataState>((set, get) => ({
         await db.projects.updateResourceOrder(projectId, [...(project.resource_order || []), resourceId]);
       }
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to add resource to project: ${error.message}`);
-      }
-      throw new Error('Failed to add resource to project');
+      console.error('Error adding resource to project:', error);
+      throw error;
     }
   },
 
@@ -344,7 +333,6 @@ export const useDataStore = create<DataState>((set, get) => ({
     console.log('Starting removeResourceFromProject:', { projectId, resourceId });
     
     try {
-      // Step 1: Get all allocations for this resource in this project
       const { allocations } = get();
       const allocationIds = allocations
         .filter(a => a.project_id === projectId && a.resource_id === resourceId)
@@ -352,7 +340,6 @@ export const useDataStore = create<DataState>((set, get) => ({
       
       console.log('Found allocations to delete:', allocationIds);
 
-      // Step 2: Delete allocations one by one with error handling
       for (const id of allocationIds) {
         try {
           console.log('Deleting allocation:', id);
@@ -364,7 +351,6 @@ export const useDataStore = create<DataState>((set, get) => ({
         }
       }
 
-      // Step 3: Update local state
       console.log('Updating local state...');
       set(state => {
         const project = state.projects.find(p => p.id === projectId);
@@ -391,7 +377,6 @@ export const useDataStore = create<DataState>((set, get) => ({
         };
       });
 
-      // Step 4: Update resource order in database
       const project = get().projects.find(p => p.id === projectId);
       if (project && project.resource_order) {
         console.log('Updating resource order in database');
@@ -401,23 +386,9 @@ export const useDataStore = create<DataState>((set, get) => ({
         );
       }
 
-      // Step 5: Verify the deletion
-      console.log('Verifying deletion...');
-      await get().fetchInitialData();
-
-      const verifyAllocations = get().allocations.some(
-        a => a.project_id === projectId && a.resource_id === resourceId
-      );
-
-      if (verifyAllocations) {
-        console.error('Verification failed: Resource still has allocations');
-        throw new Error('Failed to remove resource from project. Please try again.');
-      }
-
       console.log('Successfully removed resource from project');
     } catch (error) {
-      console.error('Error in removeResourceFromProject:', error);
-      await get().fetchInitialData();
+      console.error('Error removing resource from project:', error);
       throw error;
     }
   },
@@ -434,11 +405,8 @@ export const useDataStore = create<DataState>((set, get) => ({
 
       return newResource;
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to create resource: ${error.message}`);
-      }
-      throw new Error('Failed to create resource');
+      console.error('Error creating resource:', error);
+      throw error;
     }
   },
 
@@ -452,11 +420,8 @@ export const useDataStore = create<DataState>((set, get) => ({
         return { projects: updatedProjects };
       });
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to create project: ${error.message}`);
-      }
-      throw new Error('Failed to create project');
+      console.error('Error creating project:', error);
+      throw error;
     }
   },
 
@@ -474,11 +439,8 @@ export const useDataStore = create<DataState>((set, get) => ({
         };
       });
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to delete project: ${error.message}`);
-      }
-      throw new Error('Failed to delete project');
+      console.error('Error deleting project:', error);
+      throw error;
     }
   },
 
@@ -507,11 +469,8 @@ export const useDataStore = create<DataState>((set, get) => ({
         )
       }));
     } catch (error) {
-      await get().fetchInitialData();
-      if (error instanceof Error) {
-        throw new Error(`Failed to reorder resources: ${error.message}`);
-      }
-      throw new Error('Failed to reorder resources');
+      console.error('Error reordering resources:', error);
+      throw error;
     }
   },
 
@@ -520,10 +479,8 @@ export const useDataStore = create<DataState>((set, get) => ({
       await importExport.importData(data);
       await get().fetchInitialData();
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Failed to import data: ${error.message}`);
-      }
-      throw new Error('Failed to import data');
+      console.error('Error importing data:', error);
+      throw error;
     }
   },
 
@@ -531,10 +488,8 @@ export const useDataStore = create<DataState>((set, get) => ({
     try {
       return await importExport.exportData();
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Failed to export data: ${error.message}`);
-      }
-      throw new Error('Failed to export data');
+      console.error('Error exporting data:', error);
+      throw error;
     }
   },
 }));
