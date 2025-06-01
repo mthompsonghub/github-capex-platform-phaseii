@@ -14,6 +14,19 @@ function App() {
   const [session, setSession] = useState(null);
   const { fetchInitialData } = useDataStore();
 
+  const clearAuthData = () => {
+    // Clear all client-side storage
+    localStorage.clear();
+    sessionStorage.clear();
+
+    // Clear all cookies
+    document.cookie.split(';').forEach(cookie => {
+      document.cookie = cookie
+        .replace(/^ +/, '')
+        .replace(/=.*/, `=;expires=${new Date().toUTCString()};path=/`);
+    });
+  };
+
   useEffect(() => {
     const initializeApp = async () => {
       // Check for version change
@@ -26,17 +39,7 @@ function App() {
 
         // Sign out from Supabase first to properly invalidate the session
         await supabase.auth.signOut();
-
-        // Then clear client-side storage
-        localStorage.clear();
-        sessionStorage.clear();
-
-        // Clear all cookies
-        document.cookie.split(';').forEach(cookie => {
-          document.cookie = cookie
-            .replace(/^ +/, '')
-            .replace(/=.*/, `=;expires=${new Date().toUTCString()};path=/`);
-        });
+        clearAuthData();
 
         // Update stored version before reload
         updateStoredVersion();
@@ -49,12 +52,28 @@ function App() {
         return;
       }
 
-      // Normal initialization
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      
-      if (session) {
-        await fetchInitialData();
+      try {
+        // Attempt to get the session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error || !session) {
+          // If there's an error or no session, clear everything
+          await supabase.auth.signOut();
+          clearAuthData();
+          setSession(null);
+          return;
+        }
+
+        setSession(session);
+        if (session) {
+          await fetchInitialData();
+        }
+      } catch (error) {
+        // Handle any unexpected errors
+        console.error('Error during authentication:', error);
+        await supabase.auth.signOut();
+        clearAuthData();
+        setSession(null);
       }
     };
 
@@ -63,9 +82,13 @@ function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
       if (session) {
+        setSession(session);
         await fetchInitialData();
+      } else {
+        // Clear everything if the session becomes invalid
+        clearAuthData();
+        setSession(null);
       }
     });
 
