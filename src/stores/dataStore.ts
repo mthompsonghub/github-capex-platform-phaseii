@@ -376,7 +376,6 @@ export const useDataStore = create<DataState>((set, get) => ({
         );
       }
     } catch (error) {
-      await get().fetchInitialData();
       if (error instanceof Error) {
         throw new Error(`Failed to remove resource from project: ${error.message}`);
       }

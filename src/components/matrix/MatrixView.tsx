@@ -92,11 +92,13 @@ export function MatrixView() {
     projectId: string;
     resourceId: string;
     resourceName: string;
+    isLoading: boolean;
   }>({
     isOpen: false,
     projectId: '',
     resourceId: '',
     resourceName: '',
+    isLoading: false
   });
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -140,7 +142,36 @@ export function MatrixView() {
       toast.success('Project deleted successfully');
       setShowDeleteConfirm({ isOpen: false, projectId: '', projectName: '' });
     } catch (error) {
-      toast.error('Failed to delete project');
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('Failed to delete project');
+      }
+    }
+  };
+
+  const handleRemoveResource = async () => {
+    if (!confirmDelete.projectId || !confirmDelete.resourceId) return;
+
+    setConfirmDelete(prev => ({ ...prev, isLoading: true }));
+
+    try {
+      await removeResourceFromProject(confirmDelete.projectId, confirmDelete.resourceId);
+      toast.success(`${confirmDelete.resourceName} removed successfully`);
+    } catch (error) {
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('Failed to remove resource from project');
+      }
+    } finally {
+      setConfirmDelete({
+        isOpen: false,
+        projectId: '',
+        resourceId: '',
+        resourceName: '',
+        isLoading: false
+      });
     }
   };
 
@@ -476,6 +507,7 @@ export function MatrixView() {
                                               projectId: project.id,
                                               resourceId: resource.id,
                                               resourceName: resource.name,
+                                              isLoading: false
                                             })}
                                             className="block w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 text-left"
                                           >
@@ -590,13 +622,17 @@ export function MatrixView() {
       {confirmDelete.isOpen && (
         <ConfirmDeleteModal
           isOpen={confirmDelete.isOpen}
-          onClose={() => setConfirmDelete({ isOpen: false, projectId: '', resourceId: '', resourceName: '' })}
-          onConfirm={() => {
-            removeResourceFromProject(confirmDelete.projectId, confirmDelete.resourceId);
-            setConfirmDelete({ isOpen: false, projectId: '', resourceId: '', resourceName: '' });
-          }}
+          onClose={() => setConfirmDelete({
+            isOpen: false,
+            projectId: '',
+            resourceId: '',
+            resourceName: '',
+            isLoading: false
+          })}
+          onConfirm={handleRemoveResource}
           title="Remove Resource"
           message={`Are you sure you want to remove ${confirmDelete.resourceName} from this project? This action cannot be undone.`}
+          isLoading={confirmDelete.isLoading}
         />
       )}
 
