@@ -12,49 +12,47 @@ import { ResourceMatrixApp } from './components/ResourceMatrixApp';
 
 function App() {
   const [session, setSession] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const { fetchInitialData } = useDataStore();
 
   useEffect(() => {
     const initializeApp = async () => {
-      // Check for version change
-      if (hasVersionChanged()) {
-        // First, show the update notification
-        toast.success('Application has been updated. Please log in again.', {
-          duration: 3000,
-          position: 'top-center'
-        });
-
-        // Update stored version before clearing data
-        updateStoredVersion();
-
-        // Sign out and clear data
-        await supabase.auth.signOut();
-        clearAuthData();
-
-        // Force reload after a brief delay to show the toast
-        setTimeout(() => {
-          window.location.replace('/');
-        }, 2000);
-
-        return;
-      }
-
       try {
-        // Attempt to get the session
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error || !session) {
-          setSession(null);
+        setIsLoading(true);
+
+        // Check for version change
+        if (hasVersionChanged()) {
+          toast.success('Application has been updated. Please log in again.', {
+            duration: 3000,
+            position: 'top-center'
+          });
+
+          updateStoredVersion();
+          await supabase.auth.signOut();
+          clearAuthData();
+
+          setTimeout(() => {
+            window.location.replace('/');
+          }, 2000);
           return;
         }
 
-        setSession(session);
-        if (session) {
+        // Get initial session
+        const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Error getting session:', sessionError);
+          return;
+        }
+
+        if (initialSession) {
+          setSession(initialSession);
           await fetchInitialData();
         }
       } catch (error) {
         console.error('Error during initialization:', error);
-        setSession(null);
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -62,17 +60,32 @@ function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session) {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+      
+      if (event === 'SIGNED_IN') {
         setSession(session);
-        await fetchInitialData();
-      } else {
+        try {
+          await fetchInitialData();
+        } catch (error) {
+          console.error('Error fetching data after sign in:', error);
+          toast.error('Failed to load your data. Please refresh the page.');
+        }
+      } else if (event === 'SIGNED_OUT') {
         setSession(null);
       }
     });
 
     return () => subscription.unsubscribe();
   }, [fetchInitialData]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-pulse text-gray-600">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <Router>
