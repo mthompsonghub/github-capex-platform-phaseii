@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronLeft, ChevronRight, Calendar, MoreVertical, Lock, Plus, X } from 'lucide-react';
+import { format } from 'date-fns';
 import { useDateStore } from '../../stores/dateStore';
 import { useDataStore } from '../../stores/dataStore';
 import { EditAllocationModal } from './EditAllocationModal';
@@ -10,7 +11,7 @@ import { AddProjectModal } from './AddProjectModal';
 import { ImportDataModal } from './ImportDataModal';
 import { ConfirmDeleteModal } from './ConfirmDeleteModal';
 import { MatrixHeader } from './MatrixHeader';
-import { format, parseISO, isWithinInterval } from 'date-fns';
+import { parseISO, isWithinInterval } from 'date-fns';
 import { Project, Resource } from '../../types';
 import toast from 'react-hot-toast';
 
@@ -104,7 +105,7 @@ export function MatrixView() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [menuTimeout, setMenuTimeout] = useState<NodeJS.Timeout | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; openToLeft?: boolean } | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
@@ -178,11 +179,12 @@ export function MatrixView() {
   const handleExport = async () => {
     try {
       const data = await exportAllData();
+      const timestamp = format(new Date(), 'yyyyMMddHHmm');
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project-matrix-export-${format(new Date(), 'yyyy-MM-dd')}.json`;
+      a.download = `project-matrix-export-${timestamp}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -237,9 +239,17 @@ export function MatrixView() {
     const rect = button.getBoundingClientRect();
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     
+    const menuWidth = 192;
+    const windowWidth = window.innerWidth;
+    const rightSpace = windowWidth - rect.right;
+    const leftSpace = rect.left;
+    
+    const openToLeft = rightSpace < menuWidth && leftSpace >= menuWidth;
+    
     setMenuPosition({
       top: rect.top + scrollTop,
-      right: window.innerWidth - rect.right
+      left: openToLeft ? rect.left - menuWidth : rect.left,
+      openToLeft
     });
 
     const timeout = setTimeout(() => {
@@ -421,7 +431,7 @@ export function MatrixView() {
                                         className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150"
                                         style={{
                                           top: `${menuPosition.top}px`,
-                                          right: `${menuPosition.right + 48}px`,
+                                          left: `${menuPosition.left}px`,
                                         }}
                                       >
                                         <button
@@ -492,7 +502,7 @@ export function MatrixView() {
                                           className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150"
                                           style={{
                                             top: `${menuPosition.top}px`,
-                                            right: `${menuPosition.right + 48}px`,
+                                            left: `${menuPosition.left}px`,
                                           }}
                                         >
                                           <button

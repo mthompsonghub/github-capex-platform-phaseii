@@ -3,11 +3,38 @@ import { X, Upload } from 'lucide-react';
 import { useDataStore } from '../../stores/dataStore';
 import Papa from 'papaparse';
 import toast from 'react-hot-toast';
+import { z } from 'zod';
 
 interface ImportDataModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+// Schema for validation
+const importDataSchema = z.object({
+  projects: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    status: z.string(),
+    priority: z.string(),
+    start_date: z.string(),
+    end_date: z.string(),
+  })),
+  resources: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    title: z.string(),
+    department: z.string(),
+  })),
+  allocations: z.array(z.object({
+    id: z.string().uuid(),
+    project_id: z.string().uuid(),
+    resource_id: z.string().uuid(),
+    project_quarter_number: z.number(),
+    percentage: z.number(),
+  })),
+  exported_at: z.string(),
+});
 
 export function ImportDataModal({ isOpen, onClose }: ImportDataModalProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -25,12 +52,35 @@ export function ImportDataModal({ isOpen, onClose }: ImportDataModalProps) {
     setIsDragging(false);
   };
 
+  const validateImportData = (data: unknown) => {
+    try {
+      const parsed = importDataSchema.parse(data);
+      
+      // Check for legacy format (year/quarter instead of project_quarter_number)
+      const hasLegacyFormat = parsed.allocations.some(
+        (a: any) => 'year' in a || 'quarter' in a
+      );
+      
+      if (hasLegacyFormat) {
+        throw new Error('Legacy data format detected. Please export new data from the current version.');
+      }
+
+      return parsed;
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new Error('Invalid data format. Please ensure you are using a valid export file.');
+      }
+      throw error;
+    }
+  };
+
   const processFile = async (file: File) => {
     try {
       if (file.type === 'application/json') {
         const text = await file.text();
         const data = JSON.parse(text);
-        await importAllData(data);
+        const validatedData = validateImportData(data);
+        await importAllData(validatedData);
       } else if (file.type === 'text/csv') {
         Papa.parse(file, {
           header: true,
@@ -38,7 +88,8 @@ export function ImportDataModal({ isOpen, onClose }: ImportDataModalProps) {
             if (results.errors.length > 0) {
               throw new Error('Invalid CSV format');
             }
-            await importAllData(results.data);
+            const validatedData = validateImportData(results.data);
+            await importAllData(validatedData);
           },
           error: (error) => {
             throw new Error(`CSV parsing error: ${error.message}`);
