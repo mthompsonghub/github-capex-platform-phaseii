@@ -1,14 +1,15 @@
 import { create } from 'zustand';
 import Fuse from 'fuse.js';
-import { Project, Resource, Allocation } from '../types';
+import { Project, Resource, Allocation, Alert } from '../types';
 import { db, importExport } from '../lib/supabase';
-import { parseISO, isWithinInterval } from 'date-fns';
+import { parseISO, differenceInQuarters, startOfQuarter, addQuarters } from 'date-fns';
 
 interface DataState {
   projects: Project[];
   resources: Resource[];
   allocations: Allocation[];
   searchTerm: string;
+  alerts: Alert[];
   fetchInitialData: () => Promise<void>;
   getProjectResources: (projectId: string) => Resource[];
   getAllocation: (projectId: string, resourceId: string, year: number, quarter: number) => number;
@@ -32,6 +33,8 @@ interface DataState {
   }>;
   deleteProject: (projectId: string) => Promise<void>;
   reorderProjectResources: (projectId: string, draggedResourceId: string, targetResourceId: string) => Promise<void>;
+  addAlert: (alert: Alert) => void;
+  clearAlerts: () => void;
 }
 
 const projectFuse = new Fuse([], {
@@ -50,6 +53,7 @@ export const useDataStore = create<DataState>((set, get) => ({
   resources: [],
   allocations: [],
   searchTerm: '',
+  alerts: [],
 
   fetchInitialData: async () => {
     console.log('Fetching initial data...');
@@ -110,37 +114,39 @@ export const useDataStore = create<DataState>((set, get) => ({
     
     if (!project) return 0;
 
-    const quarterStart = new Date(year, (quarter - 1) * 3, 1);
-    const quarterEnd = new Date(year, quarter * 3 - 1, 31);
-    const projectStart = parseISO(project.start_date);
-    const projectEnd = parseISO(project.end_date);
-
-    if (!isWithinInterval(quarterStart, { start: projectStart, end: projectEnd }) &&
-        !isWithinInterval(quarterEnd, { start: projectStart, end: projectEnd })) {
-      return 0;
-    }
+    const projectStartDate = parseISO(project.start_date);
+    const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+    const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
 
     const allocation = allocations.find(
       a => a.project_id === projectId &&
            a.resource_id === resourceId &&
-           a.year === year &&
-           a.quarter === quarter
+           a.project_quarter_number === projectQuarterNumber
     );
+
     return allocation?.percentage || 0;
   },
 
   getResourceCount: (projectId: string, year: number, quarter: number) => {
-    const { allocations } = get();
+    const { allocations, projects } = get();
+    const project = projects.find(p => p.id === projectId);
+    
+    if (!project) return 0;
+
+    const projectStartDate = parseISO(project.start_date);
+    const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+    const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
+
     const resourceIds = new Set(
       allocations
         .filter(a => 
           a.project_id === projectId &&
-          a.year === year &&
-          a.quarter === quarter &&
+          a.project_quarter_number === projectQuarterNumber &&
           a.percentage > 0
         )
         .map(a => a.resource_id)
     );
+
     return resourceIds.size;
   },
 
@@ -157,33 +163,21 @@ export const useDataStore = create<DataState>((set, get) => ({
         throw new Error('Project not found');
       }
 
-      set(state => {
-        const allocationIndex = state.allocations.findIndex(
-          a => a.project_id === projectId &&
-               a.resource_id === resourceId &&
-               a.year === year &&
-               a.quarter === quarter
-        );
+      const projectStartDate = parseISO(project.start_date);
+      const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+      const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
 
-        if (allocationIndex >= 0) {
-          const newAllocations = [...state.allocations];
-          newAllocations[allocationIndex] = {
-            ...newAllocations[allocationIndex],
-            percentage
-          };
-          return { allocations: newAllocations };
-        }
-
-        const newAllocation: Allocation = {
-          id: `a${Date.now()}`,
-          project_id: projectId,
-          resource_id: resourceId,
-          year,
-          quarter,
-          percentage
-        };
-        return { allocations: [...state.allocations, newAllocation] };
+      const newAllocation = await db.allocations.create({
+        project_id: projectId,
+        resource_id: resourceId,
+        project_quarter_number: projectQuarterNumber,
+        percentage
       });
+
+      set(state => ({
+        allocations: [...state.allocations, newAllocation]
+      }));
+
     } catch (error) {
       console.error('Error updating allocation:', error);
       throw error;
@@ -198,16 +192,12 @@ export const useDataStore = create<DataState>((set, get) => ({
 
     const projectStart = parseISO(project.start_date);
     const projectEnd = parseISO(project.end_date);
+    const totalQuarters = Math.ceil(differenceInQuarters(projectEnd, projectStart));
 
     set(state => ({
       allocations: state.allocations.filter(allocation => {
         if (allocation.project_id !== projectId) return true;
-
-        const quarterStart = new Date(allocation.year, (allocation.quarter - 1) * 3, 1);
-        const quarterEnd = new Date(allocation.year, allocation.quarter * 3 - 1, 31);
-
-        return isWithinInterval(quarterStart, { start: projectStart, end: projectEnd }) ||
-               isWithinInterval(quarterEnd, { start: projectStart, end: projectEnd });
+        return allocation.project_quarter_number <= totalQuarters;
       })
     }));
   },
@@ -281,6 +271,12 @@ export const useDataStore = create<DataState>((set, get) => ({
   addResourceToProject: async (projectId: string, resourceId: string) => {
     try {
       const { allocations, projects } = get();
+      const project = projects.find(p => p.id === projectId);
+      
+      if (!project) {
+        throw new Error('Project not found');
+      }
+
       const existingAllocation = allocations.find(
         a => a.project_id === projectId && a.resource_id === resourceId
       );
@@ -289,15 +285,11 @@ export const useDataStore = create<DataState>((set, get) => ({
         throw new Error('Resource is already assigned to this project');
       }
 
-      const currentDate = new Date();
-      const currentYear = currentDate.getFullYear();
-      const currentQuarter = Math.floor(currentDate.getMonth() / 3) + 1;
-
+      // Create initial allocation at project quarter 1 with 0%
       const newAllocation = await db.allocations.create({
         project_id: projectId,
         resource_id: resourceId,
-        year: currentYear,
-        quarter: currentQuarter,
+        project_quarter_number: 1,
         percentage: 0
       });
 
@@ -319,10 +311,6 @@ export const useDataStore = create<DataState>((set, get) => ({
         return { allocations: [...state.allocations, newAllocation] };
       });
 
-      const project = get().projects.find(p => p.id === projectId);
-      if (project) {
-        await db.projects.updateResourceOrder(projectId, [...(project.resource_order || []), resourceId]);
-      }
     } catch (error) {
       console.error('Error adding resource to project:', error);
       throw error;
@@ -492,4 +480,10 @@ export const useDataStore = create<DataState>((set, get) => ({
       throw error;
     }
   },
+
+  addAlert: (alert: Alert) => set(state => ({
+    alerts: [...state.alerts, alert]
+  })),
+
+  clearAlerts: () => set({ alerts: [] }),
 }));
