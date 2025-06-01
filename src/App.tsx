@@ -5,7 +5,7 @@ import { Auth } from './components/Auth';
 import { supabase } from './lib/supabase';
 import { Toaster } from 'react-hot-toast';
 import { useDataStore } from './stores/dataStore';
-import { APP_VERSION, hasVersionChanged, updateStoredVersion } from './config/appConfig';
+import { APP_VERSION, hasVersionChanged, updateStoredVersion, clearAuthData } from './config/appConfig';
 import toast from 'react-hot-toast';
 import { CapExDashboard } from './components/CapExDashboard';
 import { ResourceMatrixApp } from './components/ResourceMatrixApp';
@@ -13,19 +13,6 @@ import { ResourceMatrixApp } from './components/ResourceMatrixApp';
 function App() {
   const [session, setSession] = useState(null);
   const { fetchInitialData } = useDataStore();
-
-  const clearAuthData = () => {
-    // Clear all client-side storage
-    localStorage.clear();
-    sessionStorage.clear();
-
-    // Clear all cookies
-    document.cookie.split(';').forEach(cookie => {
-      document.cookie = cookie
-        .replace(/^ +/, '')
-        .replace(/=.*/, `=;expires=${new Date().toUTCString()};path=/`);
-    });
-  };
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -37,12 +24,12 @@ function App() {
           position: 'top-center'
         });
 
-        // Sign out from Supabase first to properly invalidate the session
+        // Update stored version before clearing data
+        updateStoredVersion();
+
+        // Sign out and clear data
         await supabase.auth.signOut();
         clearAuthData();
-
-        // Update stored version before reload
-        updateStoredVersion();
 
         // Force reload after a brief delay to show the toast
         setTimeout(() => {
@@ -57,9 +44,6 @@ function App() {
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (error || !session) {
-          // If there's an error or no session, clear everything
-          await supabase.auth.signOut();
-          clearAuthData();
           setSession(null);
           return;
         }
@@ -69,10 +53,7 @@ function App() {
           await fetchInitialData();
         }
       } catch (error) {
-        // Handle any unexpected errors
-        console.error('Error during authentication:', error);
-        await supabase.auth.signOut();
-        clearAuthData();
+        console.error('Error during initialization:', error);
         setSession(null);
       }
     };
@@ -86,8 +67,6 @@ function App() {
         setSession(session);
         await fetchInitialData();
       } else {
-        // Clear everything if the session becomes invalid
-        clearAuthData();
         setSession(null);
       }
     });
@@ -109,7 +88,6 @@ function App() {
           path="/apps/resource-matrix/*"
           element={session ? <ResourceMatrixApp /> : <Navigate to="/" />}
         />
-        {/* Add a catch-all route for 404 or redirect to dashboard if logged in */}
         <Route path="*" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/" />} />
       </Routes>
     </Router>
