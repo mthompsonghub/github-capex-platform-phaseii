@@ -81,6 +81,18 @@ export const db = {
       return projectSchema.parse(project);
     },
 
+    async updateResourceOrder(id: string, resourceOrder: string[]) {
+      const { data: project, error } = await supabase
+        .from('projects')
+        .update({ resource_order: resourceOrder })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return projectSchema.parse(project);
+    },
+
     async delete(id: string) {
       const { error } = await supabase
         .from('projects')
