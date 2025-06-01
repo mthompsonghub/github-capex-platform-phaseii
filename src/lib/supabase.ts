@@ -5,7 +5,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+  throw new Error('Missing Supabase environment variables');
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -37,17 +37,20 @@ export const allocationSchema = z.object({
   id: z.string().uuid(),
   project_id: z.string().uuid(),
   resource_id: z.string().uuid(),
-  year: z.number().int().min(2000).max(2100),
-  quarter: z.number().int().min(1).max(4),
+  project_quarter_number: z.number().int().min(1),
   percentage: z.number().min(0).max(100),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 });
 
-// Types
-export type Project = z.infer<typeof projectSchema>;
-export type Resource = z.infer<typeof resourceSchema>;
-export type Allocation = z.infer<typeof allocationSchema>;
+export const calendarAllocationSchema = z.object({
+  id: z.string().uuid(),
+  project_id: z.string().uuid(),
+  resource_id: z.string().uuid(),
+  percentage: z.number().min(0).max(100),
+  calendar_year: z.number().int(),
+  calendar_quarter: z.number().int().min(1).max(4),
+});
 
 // Database Operations
 export const db = {
@@ -70,18 +73,6 @@ export const db = {
       const { data: project, error } = await supabase
         .from('projects')
         .update(data)
-        .eq('id', id)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return projectSchema.parse(project);
-    },
-
-    async updateResourceOrder(id: string, resourceOrder: string[]) {
-      const { data: project, error } = await supabase
-        .from('projects')
-        .update({ resource_order: resourceOrder })
         .eq('id', id)
         .select()
         .single();
@@ -191,11 +182,21 @@ export const db = {
       const { data: allocations, error } = await supabase
         .from('allocations')
         .select('*')
-        .order('year', { ascending: true })
-        .order('quarter', { ascending: true });
+        .order('project_quarter_number', { ascending: true });
 
       if (error) throw error;
       return z.array(allocationSchema).parse(allocations);
+    },
+
+    async getCalendarAllocations() {
+      const { data: allocations, error } = await supabase
+        .from('calendar_allocations')
+        .select('*')
+        .order('calendar_year', { ascending: true })
+        .order('calendar_quarter', { ascending: true });
+
+      if (error) throw error;
+      return z.array(calendarAllocationSchema).parse(allocations);
     },
   },
 };
@@ -227,7 +228,6 @@ export const importExport = {
 
     const validated = importSchema.parse(data);
 
-    // Start a transaction
     const { error } = await supabase.rpc('import_data', {
       projects: validated.projects,
       resources: validated.resources,

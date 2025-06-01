@@ -22,9 +22,17 @@ export type Allocation = {
   id: string;
   project_id: string;
   resource_id: string;
-  year: number;
-  quarter: number;
+  project_quarter_number: number;
   percentage: number;
+};
+
+export type CalendarAllocation = {
+  id: string;
+  project_id: string;
+  resource_id: string;
+  percentage: number;
+  calendar_year: number;
+  calendar_quarter: number;
 };
 
 export type QuarterGroup = {
@@ -33,4 +41,21 @@ export type QuarterGroup = {
     quarter: number;
     label: string;
   }[];
+};
+
+export type Alert = {
+  type: 'warning' | 'error';
+  message: string;
+  details?: string;
+};
+
+export type OutOfBoundsAlert = {
+  projectId: string;
+  allocations: Allocation[];
+};
+
+export type OverAllocationAlert = {
+  resource: Resource;
+  quarter: { year: number; quarter: number };
+  totalPercentage: number;
 };
