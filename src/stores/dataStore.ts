@@ -84,7 +84,6 @@ export const useDataStore = create<DataState>((set, get) => ({
 
     const projectResources = resources.filter(r => resourceIds.has(r.id));
 
-    // Sort resources based on resource_order if available
     if (project.resource_order?.length) {
       return projectResources.sort((a, b) => {
         const aIndex = project.resource_order!.indexOf(a.id);
@@ -320,7 +319,6 @@ export const useDataStore = create<DataState>((set, get) => ({
         return { allocations: [...state.allocations, newAllocation] };
       });
 
-      // Update resource order in database
       const project = get().projects.find(p => p.id === projectId);
       if (project) {
         await db.projects.updateResourceOrder(projectId, [...(project.resource_order || []), resourceId]);
@@ -341,8 +339,10 @@ export const useDataStore = create<DataState>((set, get) => ({
         .filter(a => a.project_id === projectId && a.resource_id === resourceId)
         .map(a => a.id);
 
+      // Delete all allocations for this resource in this project
       await Promise.all(allocationIds.map(id => db.allocations.delete(id)));
 
+      // Update local state
       set(state => {
         const project = state.projects.find(p => p.id === projectId);
         if (project && project.resource_order) {
@@ -375,11 +375,23 @@ export const useDataStore = create<DataState>((set, get) => ({
           project.resource_order.filter(id => id !== resourceId)
         );
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Failed to remove resource from project: ${error.message}`);
+
+      // Verify the deletion was successful by refreshing the data
+      await get().fetchInitialData();
+
+      // Check if the resource was actually removed
+      const verifyAllocations = get().allocations.some(
+        a => a.project_id === projectId && a.resource_id === resourceId
+      );
+
+      if (verifyAllocations) {
+        throw new Error('Failed to remove resource from project. Please try again.');
       }
-      throw new Error('Failed to remove resource from project');
+
+    } catch (error) {
+      // Refresh data to ensure UI is in sync with database
+      await get().fetchInitialData();
+      throw error;
     }
   },
 
