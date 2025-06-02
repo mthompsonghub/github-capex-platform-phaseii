@@ -15,6 +15,13 @@ import { parseISO, isWithinInterval } from 'date-fns';
 import { Project, Resource } from '../../types';
 import toast from 'react-hot-toast';
 
+interface MenuPosition {
+  top: number;
+  left: number;
+  openToLeft?: boolean;
+  openToTop?: boolean;
+}
+
 export function MatrixView() {
   const { getQuarterRange, setDisplayOffset, displayOffset, resetView } = useDateStore();
   const { 
@@ -105,7 +112,8 @@ export function MatrixView() {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [menuTimeout, setMenuTimeout] = useState<NodeJS.Timeout | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; openToLeft?: boolean } | null>(null);
+  const dropdownMenuRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
@@ -240,27 +248,35 @@ export function MatrixView() {
     const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     
     const menuWidth = 192;
+    const menuHeight = 120;
     const windowWidth = window.innerWidth;
+    const windowHeight = window.innerHeight;
+    
     const rightSpace = windowWidth - rect.right;
-    const leftSpace = rect.left;
+    const bottomSpace = windowHeight - (rect.bottom + scrollTop);
     
-    const openToLeft = rightSpace < menuWidth && leftSpace >= menuWidth;
+    const openToLeft = rightSpace < menuWidth && rect.left >= menuWidth;
+    const openToTop = bottomSpace < menuHeight && rect.top >= menuHeight;
     
-    setMenuPosition({
-      top: rect.top + scrollTop,
+    const position: MenuPosition = {
+      top: openToTop ? rect.top + scrollTop - menuHeight : rect.top + scrollTop + rect.height,
       left: openToLeft ? rect.left - menuWidth : rect.left,
-      openToLeft
-    });
+      openToLeft,
+      openToTop
+    };
 
-    const timeout = setTimeout(() => {
-      setActiveMenu(menuId);
-    }, 200);
-    setMenuTimeout(timeout);
+    setMenuPosition(position);
+    setActiveMenu(menuId);
   }, [activeMenu, menuTimeout]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      if (
+        menuRef.current &&
+        dropdownMenuRef.current &&
+        !menuRef.current.contains(event.target as Node) &&
+        !dropdownMenuRef.current.contains(event.target as Node)
+      ) {
         setActiveMenu(null);
         setMenuPosition(null);
       }
@@ -428,10 +444,12 @@ export function MatrixView() {
                                     </button>
                                     {activeMenu === projectMenuId && menuPosition && (
                                       <div
-                                        className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150"
+                                        ref={dropdownMenuRef}
+                                        className={`fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150`}
                                         style={{
                                           top: `${menuPosition.top}px`,
                                           left: `${menuPosition.left}px`,
+                                          transformOrigin: `${menuPosition.openToLeft ? 'right' : 'left'} ${menuPosition.openToTop ? 'bottom' : 'top'}`
                                         }}
                                       >
                                         <button
@@ -499,10 +517,12 @@ export function MatrixView() {
                                       </button>
                                       {activeMenu === resourceMenuId && menuPosition && (
                                         <div
-                                          className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150"
+                                          ref={dropdownMenuRef}
+                                          className={`fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150`}
                                           style={{
                                             top: `${menuPosition.top}px`,
                                             left: `${menuPosition.left}px`,
+                                            transformOrigin: `${menuPosition.openToLeft ? 'right' : 'left'} ${menuPosition.openToTop ? 'bottom' : 'top'}`
                                           }}
                                         >
                                           <button
@@ -658,3 +678,5 @@ export function MatrixView() {
     </div>
   );
 }
+
+export { MatrixView }
