@@ -32,13 +32,23 @@ export function Auth() {
           },
         });
         if (error) throw error;
-        toast.success('Check your email to confirm your account');
+        toast.success('Account created successfully! You can now sign in.');
+        setIsSignUp(false); // Switch to sign in mode
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { error, data } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (error) throw error;
+        
+        // Check if user exists and is confirmed
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError) throw userError;
+        
+        if (!user) {
+          throw new Error('No user found. Please sign up first.');
+        }
+
         toast.success('Successfully logged in');
         navigate('/dashboard');
       }
