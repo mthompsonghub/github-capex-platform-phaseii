@@ -5,6 +5,7 @@ import { useDataStore } from '../../stores/dataStore';
 import { SearchBar } from '../SearchBar';
 import { ResourceCard } from './ResourceCard';
 import Fuse from 'fuse.js';
+import { parseISO, differenceInQuarters, startOfQuarter } from 'date-fns';
 
 export function ResourceSummary() {
   const { getQuarterRange, setDisplayOffset, displayOffset, resetView, resetTrigger } = useDateStore();
@@ -32,18 +33,43 @@ export function ResourceSummary() {
   };
 
   const calculateUtilization = (resourceId: string, year: number, quarter: number) => {
-    return allocations
-      .filter(a => a.resource_id === resourceId && a.year === year && a.quarter === quarter)
-      .reduce((sum, a) => sum + a.percentage, 0);
+    const resourceAllocations = allocations.filter(a => a.resource_id === resourceId);
+    
+    return resourceAllocations.reduce((total, allocation) => {
+      const project = projects.find(p => p.id === allocation.project_id);
+      if (!project) return total;
+
+      const projectStartDate = parseISO(project.start_date);
+      const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+      const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
+
+      if (allocation.project_quarter_number === projectQuarterNumber) {
+        return total + allocation.percentage;
+      }
+      return total;
+    }, 0);
   };
 
   const getProjectAllocations = (resourceId: string, year: number, quarter: number) => {
     return allocations
-      .filter(a => a.resource_id === resourceId && a.year === year && a.quarter === quarter)
-      .map(a => ({
-        project: projects.find(p => p.id === a.project_id)!,
-        percentage: a.percentage
-      }))
+      .filter(a => a.resource_id === resourceId)
+      .map(allocation => {
+        const project = projects.find(p => p.id === allocation.project_id);
+        if (!project) return null;
+
+        const projectStartDate = parseISO(project.start_date);
+        const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+        const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
+
+        if (allocation.project_quarter_number === projectQuarterNumber) {
+          return {
+            project,
+            percentage: allocation.percentage
+          };
+        }
+        return null;
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null)
       .sort((a, b) => b.percentage - a.percentage);
   };
 
@@ -77,7 +103,10 @@ export function ResourceSummary() {
         </div>
       </div>
 
-      <SearchBar onSearch={handleSearch} />
+      <SearchBar 
+        onSearch={handleSearch}
+        placeholder="Search by name, title, or department..."
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {searchResults.map(resource => (

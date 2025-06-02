@@ -6,6 +6,7 @@ import { Project } from '../../types';
 import { SearchBar } from '../SearchBar';
 import { ProjectCard } from './ProjectCard';
 import Fuse from 'fuse.js';
+import { parseISO, differenceInQuarters, startOfQuarter } from 'date-fns';
 
 type StatusFilter = 'All' | 'Active' | 'Planned' | 'On Hold' | 'Completed';
 type PriorityFilter = 'All' | 'Critical' | 'High' | 'Medium' | 'Low';
@@ -37,9 +38,17 @@ export function ProjectSummary() {
   );
 
   const calculateProjectAllocation = (projectId: string, year: number, quarter: number) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return 0;
+
+    const projectStartDate = parseISO(project.start_date);
+    const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+    const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
+
     const projectAllocations = allocations.filter(
-      a => a.project_id === projectId && a.year === year && a.quarter === quarter
+      a => a.project_id === projectId && a.project_quarter_number === projectQuarterNumber
     );
+
     if (projectAllocations.length === 0) return 0;
     return projectAllocations.reduce((sum, a) => sum + a.percentage, 0) / projectAllocations.length;
   };
@@ -54,11 +63,17 @@ export function ProjectSummary() {
   };
 
   const getAllocation = (projectId: string, resourceId: string, year: number, quarter: number) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return 0;
+
+    const projectStartDate = parseISO(project.start_date);
+    const targetQuarterDate = new Date(year, (quarter - 1) * 3, 1);
+    const projectQuarterNumber = Math.floor(differenceInQuarters(targetQuarterDate, startOfQuarter(projectStartDate))) + 1;
+
     const allocation = allocations.find(
       a => a.project_id === projectId &&
            a.resource_id === resourceId &&
-           a.year === year &&
-           a.quarter === quarter
+           a.project_quarter_number === projectQuarterNumber
     );
     return allocation?.percentage || 0;
   };
@@ -94,17 +109,14 @@ export function ProjectSummary() {
       return true;
     })
     .sort((a, b) => {
-      // Sort by priority first
       const priorityOrder = { Critical: 0, High: 1, Medium: 2, Low: 3 };
       const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
       if (priorityDiff !== 0) return priorityDiff;
       
-      // Then by status
       const statusOrder = { Active: 0, Planned: 1, 'On Hold': 2, Completed: 3 };
       const statusDiff = statusOrder[a.status] - statusOrder[b.status];
       if (statusDiff !== 0) return statusDiff;
       
-      // Finally by name
       return a.name.localeCompare(b.name);
     });
 
@@ -158,9 +170,6 @@ export function ProjectSummary() {
               <option value="Low">Low</option>
             </select>
           </div>
-          <button className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
-            Export Data
-          </button>
         </div>
       </div>
 
