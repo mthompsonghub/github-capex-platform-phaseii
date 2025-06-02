@@ -161,11 +161,20 @@ export const db = {
     async create(data: Omit<Allocation, 'id' | 'created_at' | 'updated_at'>) {
       const { data: allocation, error } = await supabase
         .from('allocations')
-        .insert([data])
+        .upsert([data], {
+          onConflict: 'project_id,resource_id,project_quarter_number',
+          ignoreDuplicates: false
+        })
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '23505') { // Unique violation
+          throw new Error('This allocation already exists');
+        }
+        throw error;
+      }
+
       return allocationSchema.parse(allocation);
     },
 
@@ -246,6 +255,11 @@ export const importExport = {
       allocations: validated.allocations,
     });
 
-    if (error) throw error;
+    if (error) {
+      if (error.message.includes('permission denied')) {
+        throw new Error('You do not have permission to import data. Please contact your administrator.');
+      }
+      throw error;
+    }
   },
 };
