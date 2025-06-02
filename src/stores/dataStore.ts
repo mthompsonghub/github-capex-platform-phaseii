@@ -78,6 +78,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       set({ projects: [], resources: [], allocations: [] });
       projectFuse.setCollection([]);
       resourceFuse.setCollection([]);
+      throw error;
     }
   },
 
@@ -174,12 +175,23 @@ export const useDataStore = create<DataState>((set, get) => ({
         percentage
       });
 
-      set(state => ({
-        allocations: [...state.allocations, newAllocation]
-      }));
+      set(state => {
+        // Remove any existing allocation for this project/resource/quarter
+        const filteredAllocations = state.allocations.filter(a => 
+          !(a.project_id === projectId && 
+            a.resource_id === resourceId && 
+            a.project_quarter_number === projectQuarterNumber)
+        );
+        
+        // Add the new allocation
+        return {
+          allocations: [...filteredAllocations, newAllocation]
+        };
+      });
 
     } catch (error) {
       console.error('Error updating allocation:', error);
+      await get().fetchInitialData(); // Refresh data on error
       throw error;
     }
   },
@@ -227,6 +239,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       }
     } catch (error) {
       console.error('Error updating project:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -244,6 +257,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       });
     } catch (error) {
       console.error('Error updating resource:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -313,6 +327,7 @@ export const useDataStore = create<DataState>((set, get) => ({
 
     } catch (error) {
       console.error('Error adding resource to project:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -377,6 +392,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       console.log('Successfully removed resource from project');
     } catch (error) {
       console.error('Error removing resource from project:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -394,6 +410,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       return newResource;
     } catch (error) {
       console.error('Error creating resource:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -409,6 +426,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       });
     } catch (error) {
       console.error('Error creating project:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -428,6 +446,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       });
     } catch (error) {
       console.error('Error deleting project:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
@@ -458,6 +477,7 @@ export const useDataStore = create<DataState>((set, get) => ({
       }));
     } catch (error) {
       console.error('Error reordering resources:', error);
+      await get().fetchInitialData();
       throw error;
     }
   },
