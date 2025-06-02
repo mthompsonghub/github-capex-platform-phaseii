@@ -678,3 +678,5 @@ export function MatrixView() {
     </div>
   );
 }
+
+export { MatrixView }
