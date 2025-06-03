@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { useDataStore } from '../../stores/dataStore';
 import { Project } from '../../types';
 import toast from 'react-hot-toast';
+import { format, parseISO } from 'date-fns';
 
 interface EditProjectModalProps {
   isOpen: boolean;
@@ -10,36 +11,99 @@ interface EditProjectModalProps {
   project: Project;
 }
 
+interface FormErrors {
+  name?: string;
+  start_date?: string;
+  end_date?: string;
+}
+
+const formatDateForInput = (dateString: string) => {
+  return format(parseISO(dateString), 'yyyy-MM-dd');
+};
+
 export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalProps) {
   const [formData, setFormData] = useState({
     name: project.name,
     status: project.status,
     priority: project.priority,
-    start_date: project.start_date,
-    end_date: project.end_date,
+    start_date: formatDateForInput(project.start_date),
+    end_date: formatDateForInput(project.end_date),
   });
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const updateProject = useDataStore((state) => state.updateProject);
 
   if (!isOpen) return null;
 
+  const validateForm = () => {
+    const newErrors: FormErrors = {};
+
+    // Validate project name
+    if (!formData.name.trim()) {
+      newErrors.name = 'Project name is required';
+    }
+
+    // Validate dates
+    if (!formData.start_date) {
+      newErrors.start_date = 'Start date is required';
+    }
+    if (!formData.end_date) {
+      newErrors.end_date = 'End date is required';
+    }
+
+    // Validate date range
+    if (formData.start_date && formData.end_date) {
+      const startDate = new Date(formData.start_date);
+      const endDate = new Date(formData.end_date);
+      if (endDate < startDate) {
+        newErrors.end_date = 'End date must be after start date';
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const formatDateToISO = (dateString: string) => {
+    // Parse the YYYY-MM-DD format
+    const [year, month, day] = dateString.split('-').map(Number);
+    
+    // Create a UTC date at midnight
+    const utcDate = Date.UTC(year, month - 1, day);
+    
+    // Convert to ISO string
+    return new Date(utcDate).toISOString();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    
+    if (!validateForm()) {
+      return;
+    }
 
+    setIsSubmitting(true);
     try {
-      await updateProject(project.id, formData);
+      const updates = {
+        ...formData,
+        start_date: formatDateToISO(formData.start_date),
+        end_date: formatDateToISO(formData.end_date),
+      };
+
+      await updateProject(project.id, updates);
       toast.success('Project updated successfully');
       onClose();
     } catch (error) {
       if (error instanceof Error) {
-        setError(error.message);
+        setErrors(prev => ({ ...prev, submit: error.message }));
         toast.error(error.message);
       } else {
-        setError('Failed to update project');
+        setErrors(prev => ({ ...prev, submit: 'Failed to update project' }));
         toast.error('Failed to update project');
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -48,16 +112,15 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
       <div className="bg-white rounded-lg p-6 w-[32rem]">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold">Edit Project Details</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+          <button 
+            onClick={onClose} 
+            className="text-gray-500 hover:text-gray-700"
+            disabled={isSubmitting}
+          >
             <X className="h-5 w-5" />
           </button>
         </div>
         <form onSubmit={handleSubmit}>
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md">
-              {error}
-            </div>
-          )}
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -67,8 +130,14 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent"
+                disabled={isSubmitting}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent ${
+                  errors.name ? 'border-red-500' : 'border-gray-300'
+                } disabled:bg-gray-100 disabled:cursor-not-allowed`}
               />
+              {errors.name && (
+                <p className="mt-1 text-sm text-red-600">{errors.name}</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -77,7 +146,8 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
               <select
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value as Project['status'] })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent"
+                disabled={isSubmitting}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
                 <option value="Active">Active</option>
                 <option value="Inactive">Inactive</option>
@@ -93,7 +163,8 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
               <select
                 value={formData.priority}
                 onChange={(e) => setFormData({ ...formData, priority: e.target.value as Project['priority'] })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent"
+                disabled={isSubmitting}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
                 <option value="Critical">Critical</option>
                 <option value="High">High</option>
@@ -109,8 +180,14 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
                 type="date"
                 value={formData.start_date}
                 onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent"
+                disabled={isSubmitting}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent ${
+                  errors.start_date ? 'border-red-500' : 'border-gray-300'
+                } disabled:bg-gray-100 disabled:cursor-not-allowed`}
               />
+              {errors.start_date && (
+                <p className="mt-1 text-sm text-red-600">{errors.start_date}</p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -120,21 +197,29 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
                 type="date"
                 value={formData.end_date}
                 onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent"
+                disabled={isSubmitting}
+                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent ${
+                  errors.end_date ? 'border-red-500' : 'border-gray-300'
+                } disabled:bg-gray-100 disabled:cursor-not-allowed`}
               />
+              {errors.end_date && (
+                <p className="mt-1 text-sm text-red-600">{errors.end_date}</p>
+              )}
             </div>
           </div>
           <div className="flex justify-end space-x-3 mt-6">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              disabled={isSubmitting}
+              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 bg-union-red text-white rounded-md hover:bg-union-red-dark"
+              disabled={isSubmitting}
+              className="px-4 py-2 bg-union-red text-white rounded-md hover:bg-union-red-dark disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Save Changes
             </button>
