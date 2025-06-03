@@ -36,8 +36,14 @@ export function AddProjectModal({ isOpen, onClose }: AddProjectModalProps) {
   };
 
   const formatDateToISO = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toISOString();
+    // Parse the YYYY-MM-DD format
+    const [year, month, day] = dateString.split('-').map(Number);
+    
+    // Create a UTC date at midnight
+    const utcDate = Date.UTC(year, month - 1, day);
+    
+    // Convert to ISO string
+    return new Date(utcDate).toISOString();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
