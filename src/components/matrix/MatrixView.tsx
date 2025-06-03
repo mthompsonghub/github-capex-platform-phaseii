@@ -253,14 +253,18 @@ export function MatrixView() {
     const windowHeight = window.innerHeight;
     
     const rightSpace = windowWidth - rect.right;
-    const bottomSpace = windowHeight - (rect.bottom + scrollTop);
+    const bottomSpace = windowHeight - (rect.bottom - scrollTop);
     
     const openToLeft = rightSpace < menuWidth && rect.left >= menuWidth;
     const openToTop = bottomSpace < menuHeight && rect.top >= menuHeight;
     
     const position: MenuPosition = {
-      top: openToTop ? rect.top + scrollTop - menuHeight : rect.top + scrollTop + rect.height,
-      left: openToLeft ? rect.left - menuWidth : rect.left,
+      top: openToTop 
+        ? rect.top + scrollTop - menuHeight - 8 // Add 8px gap when opening above
+        : rect.bottom + scrollTop + 8, // Add 8px gap when opening below
+      left: openToLeft 
+        ? rect.right - menuWidth 
+        : rect.left,
       openToLeft,
       openToTop
     };
@@ -357,7 +361,7 @@ export function MatrixView() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
               <tr>
-                <th rowSpan={2} className="w-1/4 px-3 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 z-10">
+                <th rowSpan={2} className="w-1/4 px-3 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sticky left-0 z-20">
                   Project / Resource
                 </th>
                 {quarterGroups.map((group) => (
@@ -411,7 +415,7 @@ export function MatrixView() {
                   return (
                     <>
                       <tr key={project.id} className="group bg-gray-50">
-                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 sticky left-0 bg-gray-50">
+                        <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 sticky left-0 bg-gray-50 z-20">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <div className="flex items-center justify-between">
@@ -445,7 +449,7 @@ export function MatrixView() {
                                     {activeMenu === projectMenuId && menuPosition && (
                                       <div
                                         ref={dropdownMenuRef}
-                                        className={`fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150`}
+                                        className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[1000] transition-all duration-150"
                                         style={{
                                           top: `${menuPosition.top}px`,
                                           left: `${menuPosition.left}px`,
@@ -503,7 +507,7 @@ export function MatrixView() {
                         
                         return (
                           <tr key={`${project.id}-${resource.id}`} className="group">
-                            <td className="pl-8 pr-3 py-4 whitespace-nowrap text-sm text-gray-500 sticky left-0 bg-white">
+                            <td className="pl-8 pr-3 py-4 whitespace-nowrap text-sm text-gray-500 sticky left-0 bg-white z-20">
                               <div className="flex items-center justify-between">
                                 <div>
                                   <div className="font-medium text-gray-900 flex items-center justify-between">
@@ -518,7 +522,7 @@ export function MatrixView() {
                                       {activeMenu === resourceMenuId && menuPosition && (
                                         <div
                                           ref={dropdownMenuRef}
-                                          className={`fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[100] transition-opacity duration-150`}
+                                          className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[1000] transition-all duration-150"
                                           style={{
                                             top: `${menuPosition.top}px`,
                                             left: `${menuPosition.left}px`,
