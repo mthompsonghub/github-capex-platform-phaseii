@@ -1,8 +1,9 @@
 import { LogOut } from 'lucide-react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useDataStore } from '../stores/dataStore';
 
 interface HeaderProps {
   session: Session;
@@ -10,6 +11,7 @@ interface HeaderProps {
 
 export function Header({ session }: HeaderProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const isResourceMatrix = location.pathname.startsWith('/apps/resource-matrix');
 
   const handleLogout = async () => {
@@ -25,11 +27,7 @@ export function Header({ session }: HeaderProps) {
         position: 'top-center'
       });
 
-      console.log('Preparing for page redirect');
-      setTimeout(() => {
-        console.log('Executing page redirect');
-        window.location.replace('/');
-      }, 1500);
+      navigate('/', { replace: true });
     } catch (error) {
       console.error('Logout error:', error);
       if (error instanceof Error) {

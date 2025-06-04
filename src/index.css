@@ -24,3 +24,78 @@ html {
   -moz-user-select: none;
   -ms-user-select: none;
 }
+
+/* Menu animation */
+@keyframes menuFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Menu container */
+.menu-container {
+  position: relative;
+  display: inline-block;
+}
+
+/* Menu button */
+.menu-button {
+  position: relative;
+  z-index: 1;
+}
+
+/* Menu styles */
+.menu {
+  position: fixed;
+  z-index: 9999;
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  min-width: 12rem;
+  padding: 0.5rem 0;
+  margin: 0;
+  list-style: none;
+  pointer-events: auto;
+}
+
+/* Fixed positioning context */
+.fixed {
+  position: fixed !important;
+  isolation: isolate;
+}
+
+/* Dropdown menu styles */
+.dropdown-menu {
+  position: absolute;
+  z-index: 9999;
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  min-width: 192px;
+  opacity: 1;
+  visibility: visible;
+  transform-origin: top left;
+  animation: menuFadeIn 0.1s ease-out;
+  padding: 0.5rem 0;
+}
+
+/* Ensure menus are always on top */
+.dropdown-menu,
+.menu-container {
+  isolation: isolate;
+}
+
+/* Handle viewport scaling */
+@supports (zoom: 1) {
+  body {
+    transform-origin: top left;
+    transform: scale(var(--viewport-scale, 1));
+  }
+}

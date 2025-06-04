@@ -9,9 +9,10 @@ import { APP_VERSION, hasVersionChanged, updateStoredVersion, clearAuthData } fr
 import toast from 'react-hot-toast';
 import { CapExDashboard } from './components/CapExDashboard';
 import { ResourceMatrixApp } from './components/ResourceMatrixApp';
+import { Session } from '@supabase/supabase-js';
 
 function App() {
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { fetchInitialData } = useDataStore();
 
@@ -101,7 +102,7 @@ function App() {
           path="/apps/resource-matrix/*"
           element={session ? <ResourceMatrixApp /> : <Navigate to="/" />}
         />
-        <Route path="*" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/" />} />
+        <Route path="*" element={<Navigate to={session ? "/dashboard" : "/"} replace />} />
       </Routes>
     </Router>
   );

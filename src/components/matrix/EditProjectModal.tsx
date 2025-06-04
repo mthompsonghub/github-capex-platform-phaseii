@@ -96,8 +96,11 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
       onClose();
     } catch (error) {
       if (error instanceof Error) {
-        setErrors(prev => ({ ...prev, submit: error.message }));
-        toast.error(error.message);
+        const errorMessage = error.message === 'Project not found or you do not have permission to update it'
+          ? 'You can only edit projects that you created'
+          : error.message;
+        setErrors(prev => ({ ...prev, submit: errorMessage }));
+        toast.error(errorMessage);
       } else {
         setErrors(prev => ({ ...prev, submit: 'Failed to update project' }));
         toast.error('Failed to update project');

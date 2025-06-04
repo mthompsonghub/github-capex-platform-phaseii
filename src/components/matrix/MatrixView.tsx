@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, MoreVertical, Lock, Plus, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, MoreVertical, Lock, Plus, X, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { useDateStore } from '../../stores/dateStore';
 import { useDataStore } from '../../stores/dataStore';
@@ -14,6 +14,7 @@ import { MatrixHeader } from './MatrixHeader';
 import { parseISO, isWithinInterval } from 'date-fns';
 import { Project, Resource } from '../../types';
 import toast from 'react-hot-toast';
+import React from 'react';
 
 interface MenuPosition {
   top: number;
@@ -231,6 +232,7 @@ export function MatrixView() {
 
   const handleMenuClick = useCallback((menuId: string, event: React.MouseEvent) => {
     event.stopPropagation();
+    event.preventDefault();
     
     if (menuTimeout) {
       clearTimeout(menuTimeout);
@@ -245,28 +247,42 @@ export function MatrixView() {
 
     const button = event.currentTarget as HTMLElement;
     const rect = button.getBoundingClientRect();
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
     
+    // Menu dimensions
     const menuWidth = 192;
-    const menuHeight = 120;
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-    
-    const rightSpace = windowWidth - rect.right;
-    const bottomSpace = windowHeight - (rect.bottom - scrollTop);
-    
-    const openToLeft = rightSpace < menuWidth && rect.left >= menuWidth;
-    const openToTop = bottomSpace < menuHeight && rect.top >= menuHeight;
-    
+    const menuHeight = 48; // Height of single menu item
+    const padding = 8;
+
+    // Get viewport dimensions
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    // Calculate initial position (relative to viewport)
+    let top = rect.bottom;
+    let left = rect.left;
+
+    // Check if menu would go outside viewport
+    const wouldOverflowRight = (left + menuWidth) > viewportWidth;
+    const wouldOverflowBottom = (top + menuHeight) > viewportHeight;
+
+    // Adjust position if it would overflow
+    if (wouldOverflowRight) {
+      left = rect.right - menuWidth;
+    }
+
+    if (wouldOverflowBottom) {
+      top = rect.top - menuHeight;
+    }
+
+    // Ensure menu stays within viewport bounds
+    left = Math.max(padding, Math.min(left, viewportWidth - menuWidth - padding));
+    top = Math.max(padding, Math.min(top, viewportHeight - menuHeight - padding));
+
     const position: MenuPosition = {
-      top: openToTop 
-        ? rect.top + scrollTop - menuHeight - 8 // Add 8px gap when opening above
-        : rect.bottom + scrollTop + 8, // Add 8px gap when opening below
-      left: openToLeft 
-        ? rect.right - menuWidth 
-        : rect.left,
-      openToLeft,
-      openToTop
+      top,
+      left,
+      openToLeft: wouldOverflowRight,
+      openToTop: wouldOverflowBottom
     };
 
     setMenuPosition(position);
@@ -413,14 +429,21 @@ export function MatrixView() {
                   const projectMenuId = `project-${project.id}`;
                   
                   return (
-                    <>
-                      <tr key={project.id} className="group bg-gray-50">
+                    <React.Fragment key={project.id}>
+                      <tr className="group bg-gray-50">
                         <td className="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900 sticky left-0 bg-gray-50 z-20">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <div className="flex items-center justify-between">
                                 <span className="font-semibold">{project.name}</span>
                                 <div className="flex items-center space-x-2">
+                                  <button
+                                    onClick={() => setEditProject({ isOpen: true, project })}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-gray-200 rounded-full"
+                                    title="Edit Project"
+                                  >
+                                    <Pencil className="h-4 w-4 text-gray-600" />
+                                  </button>
                                   <button
                                     onClick={() => setAddResource({ isOpen: true, projectId: project.id })}
                                     className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-gray-200 rounded-full"
@@ -434,43 +457,11 @@ export function MatrixView() {
                                       projectId: project.id,
                                       projectName: project.name,
                                     })}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-gray-200 rounded-full"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-red-100 rounded-full text-red-600 hover:text-red-700"
                                     title="Delete Project"
                                   >
-                                    <X className="h-4 w-4 text-gray-600" />
+                                    <X className="h-4 w-4" />
                                   </button>
-                                  <div className="relative menu-container" ref={menuRef}>
-                                    <button
-                                      onClick={(e) => handleMenuClick(projectMenuId, e)}
-                                      className="w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-600 focus:outline-none rounded-full hover:bg-gray-100"
-                                    >
-                                      <MoreVertical className="h-5 w-5" />
-                                    </button>
-                                    {activeMenu === projectMenuId && menuPosition && (
-                                      <div
-                                        ref={dropdownMenuRef}
-                                        className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[1000] transition-all duration-150"
-                                        style={{
-                                          top: `${menuPosition.top}px`,
-                                          left: `${menuPosition.left}px`,
-                                          transformOrigin: `${menuPosition.openToLeft ? 'right' : 'left'} ${menuPosition.openToTop ? 'bottom' : 'top'}`
-                                        }}
-                                      >
-                                        <button
-                                          onClick={() => setEditProject({ isOpen: true, project })}
-                                          className="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
-                                        >
-                                          Edit Project
-                                        </button>
-                                        <button
-                                          onClick={() => setAddResource({ isOpen: true, projectId: project.id })}
-                                          className="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
-                                        >
-                                          Add Resource
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-3 mt-1 text-xs text-gray-500">
@@ -512,43 +503,27 @@ export function MatrixView() {
                                 <div>
                                   <div className="font-medium text-gray-900 flex items-center justify-between">
                                     <span>{resource.name}</span>
-                                    <div className="relative menu-container" ref={menuRef}>
+                                    <div className="flex items-center space-x-2">
                                       <button
-                                        onClick={(e) => handleMenuClick(resourceMenuId, e)}
-                                        className="w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-600 focus:outline-none rounded-full hover:bg-gray-100"
+                                        onClick={() => setEditResource({ isOpen: true, resource })}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-gray-200 rounded-full"
+                                        title="Edit Resource"
                                       >
-                                        <MoreVertical className="h-5 w-5" />
+                                        <Pencil className="h-4 w-4 text-gray-600" />
                                       </button>
-                                      {activeMenu === resourceMenuId && menuPosition && (
-                                        <div
-                                          ref={dropdownMenuRef}
-                                          className="fixed w-48 bg-white rounded-lg shadow-lg border-2 border-gray-100 py-1 z-[1000] transition-all duration-150"
-                                          style={{
-                                            top: `${menuPosition.top}px`,
-                                            left: `${menuPosition.left}px`,
-                                            transformOrigin: `${menuPosition.openToLeft ? 'right' : 'left'} ${menuPosition.openToTop ? 'bottom' : 'top'}`
-                                          }}
-                                        >
-                                          <button
-                                            onClick={() => setEditResource({ isOpen: true, resource })}
-                                            className="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
-                                          >
-                                            Edit Resource
-                                          </button>
-                                          <button
-                                            onClick={() => setConfirmDelete({
-                                              isOpen: true,
-                                              projectId: project.id,
-                                              resourceId: resource.id,
-                                              resourceName: resource.name,
-                                              isLoading: false
-                                            })}
-                                            className="block w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 text-left"
-                                          >
-                                            Remove from Project
-                                          </button>
-                                        </div>
-                                      )}
+                                      <button
+                                        onClick={() => setConfirmDelete({
+                                          isOpen: true,
+                                          projectId: project.id,
+                                          resourceId: resource.id,
+                                          resourceName: resource.name,
+                                          isLoading: false
+                                        })}
+                                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-2 hover:bg-red-100 rounded-full text-red-600 hover:text-red-700"
+                                        title="Remove Resource"
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </button>
                                     </div>
                                   </div>
                                   <div className="text-gray-500">{resource.title}</div>
@@ -594,7 +569,7 @@ export function MatrixView() {
                           </tr>
                         );
                       })}
-                    </>
+                    </React.Fragment>
                   );
                 })
               )}

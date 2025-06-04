@@ -32,14 +32,18 @@ export function Auth() {
           },
         });
         if (error) throw error;
-        toast.success('Account created successfully! You can now sign in.');
+        
+        toast.success(
+          'Account created! Please check your email to confirm your account before signing in.',
+          { duration: 5000 }
+        );
         setIsSignUp(false); // Switch to sign in mode
       } else {
-        const { error, data } = await supabase.auth.signInWithPassword({
+        const { error: signInError, data } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error) throw error;
+        if (signInError) throw signInError;
         
         // Check if user exists and is confirmed
         const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -47,6 +51,11 @@ export function Auth() {
         
         if (!user) {
           throw new Error('No user found. Please sign up first.');
+        }
+
+        // Check if email is confirmed
+        if (!user.email_confirmed_at) {
+          throw new Error('Please confirm your email address before signing in. Check your inbox for the confirmation link.');
         }
 
         toast.success('Successfully logged in');

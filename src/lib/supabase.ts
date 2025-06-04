@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
+import { Project, Resource, Allocation } from '../types';
+import { UserRole, UserRoleData } from '../types/roles';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -72,12 +74,23 @@ export const db = {
     async update(id: string, data: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at' | 'created_by'>>) {
       const { data: project, error } = await supabase
         .from('projects')
-        .update(data)
+        .update({
+          ...data,
+          // Ensure dates are in the correct format
+          ...(data.start_date && { start_date: new Date(data.start_date).toISOString() }),
+          ...(data.end_date && { end_date: new Date(data.end_date).toISOString() })
+        })
         .eq('id', id)
-        .select()
+        .select('*')
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          throw new Error('Project not found or you do not have permission to update it');
+        }
+        throw error;
+      }
+      
       return projectSchema.parse(project);
     },
 
@@ -262,4 +275,75 @@ export const importExport = {
       throw error;
     }
   },
+};
+
+export interface UserRoleWithEmail extends UserRoleData {
+  email: string;
+}
+
+// Role Management
+export const roles = {
+  async getCurrentUserRole(): Promise<UserRole | null> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching user role:', error);
+        return null;
+      }
+
+      return data?.role || null;
+    } catch (error) {
+      console.error('Error in getCurrentUserRole:', error);
+      return null;
+    }
+  },
+
+  async isAdmin(): Promise<boolean> {
+    const role = await this.getCurrentUserRole();
+    return role === 'admin';
+  },
+
+  async updateUserRole(userId: string, role: UserRole): Promise<UserRoleData | null> {
+    try {
+      // The RLS policy will handle the admin check
+      const { data, error } = await supabase
+        .from('user_roles')
+        .update({ 
+          role,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', userId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error in updateUserRole:', error);
+      throw error;
+    }
+  },
+
+  async listUserRoles(): Promise<UserRoleWithEmail[]> {
+    try {
+      const { data, error } = await supabase
+        .from('user_roles_with_emails')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error in listUserRoles:', error);
+      throw error;
+    }
+  }
 };

@@ -1,17 +1,17 @@
-import { useState } from 'react';
-
-type Tab = 'matrix' | 'resources' | 'projects';
+import { Link, useLocation } from 'react-router-dom';
 
 interface TabsProps {
-  activeTab: Tab;
-  onTabChange: (tab: Tab) => void;
+  activeTab: 'matrix' | 'resources' | 'projects';
+  onTabChange: (tab: 'matrix' | 'resources' | 'projects') => void;
 }
 
 export function Tabs({ activeTab, onTabChange }: TabsProps) {
+  const location = useLocation();
+  
   const tabs = [
-    { id: 'matrix' as const, name: 'Matrix View' },
-    { id: 'resources' as const, name: 'Resource Summary' },
-    { id: 'projects' as const, name: 'Project Summary' },
+    { id: 'matrix' as const, name: 'Matrix View', path: '.' },
+    { id: 'resources' as const, name: 'Resource Summary', path: 'resources' },
+    { id: 'projects' as const, name: 'Project Summary', path: 'projects' },
   ];
 
   return (
@@ -19,8 +19,9 @@ export function Tabs({ activeTab, onTabChange }: TabsProps) {
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex space-x-8">
           {tabs.map((tab) => (
-            <button
+            <Link
               key={tab.id}
+              to={tab.path}
               onClick={() => onTabChange(tab.id)}
               className={`
                 ${activeTab === tab.id
@@ -31,7 +32,7 @@ export function Tabs({ activeTab, onTabChange }: TabsProps) {
               `}
             >
               {tab.name}
-            </button>
+            </Link>
           ))}
         </div>
       </nav>
