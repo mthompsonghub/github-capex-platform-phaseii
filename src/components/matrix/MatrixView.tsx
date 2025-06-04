@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, MoreVertical, Lock, Plus, X, Pencil } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, MoreVertical, Lock, Plus, X, Pencil, Download, Upload } from 'lucide-react';
 import { format } from 'date-fns';
 import { useDateStore } from '../../stores/dateStore';
 import { useDataStore } from '../../stores/dataStore';
@@ -15,6 +15,7 @@ import { parseISO, isWithinInterval } from 'date-fns';
 import { Project, Resource } from '../../types';
 import toast from 'react-hot-toast';
 import React from 'react';
+import { roles } from '../../lib/supabase';
 
 interface MenuPosition {
   top: number;
@@ -116,6 +117,8 @@ export function MatrixView() {
   const dropdownMenuRef = useRef<HTMLDivElement>(null);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
+  const [isAdmin, setIsAdmin] = useState(false);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!scrollRef.current) return;
     setIsDragging(true);
@@ -186,6 +189,11 @@ export function MatrixView() {
   };
 
   const handleExport = async () => {
+    if (!isAdmin) {
+      toast.error('Only administrators can export data');
+      return;
+    }
+
     try {
       const data = await exportAllData();
       const timestamp = format(new Date(), 'yyyyMMddHHmm');
@@ -200,7 +208,12 @@ export function MatrixView() {
       URL.revokeObjectURL(url);
       toast.success('Data exported successfully');
     } catch (error) {
-      toast.error('Failed to export data');
+      console.error('Export error:', error);
+      if (error instanceof Error) {
+        toast.error(`Export failed: ${error.message}`);
+      } else {
+        toast.error('Failed to export data');
+      }
     }
   };
 
@@ -314,6 +327,14 @@ export function MatrixView() {
     };
   }, [menuTimeout]);
 
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      const isAdminUser = await roles.isAdmin();
+      setIsAdmin(isAdminUser);
+    };
+    checkAdminStatus();
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -339,18 +360,24 @@ export function MatrixView() {
           </button>
         </div>
         <div className="flex space-x-4">
-          <button
-            onClick={() => setShowImport(true)}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Import
-          </button>
-          <button
-            onClick={handleExport}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Export
-          </button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => setShowImport(true)}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import
+              </button>
+              <button
+                onClick={handleExport}
+                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </button>
+            </>
+          )}
           <button
             onClick={() => setAddProject(true)}
             className="px-4 py-2 bg-union-red text-white rounded-md text-sm font-medium hover:bg-union-red-dark"

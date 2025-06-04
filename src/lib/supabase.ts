@@ -238,18 +238,23 @@ export const db = {
 // Import/Export Utilities
 export const importExport = {
   async exportData() {
-    const [projects, resources, allocations] = await Promise.all([
-      db.projects.list(),
-      db.resources.list(),
-      db.allocations.list(),
-    ]);
+    try {
+      const [projects, resources, allocations] = await Promise.all([
+        db.projects.list(),
+        db.resources.list(),
+        db.allocations.list(),
+      ]);
 
-    return {
-      projects,
-      resources,
-      allocations,
-      exported_at: new Date().toISOString(),
-    };
+      return {
+        projects,
+        resources,
+        allocations,
+        exported_at: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error('Export error:', error);
+      throw new Error('Failed to export data. Please try again.');
+    }
   },
 
   async importData(data: unknown) {
@@ -260,17 +265,37 @@ export const importExport = {
       exported_at: z.string(),
     });
 
-    const validated = importSchema.parse(data);
+    try {
+      const validated = importSchema.parse(data);
+      
+      // First check if user is admin
+      const isAdmin = await roles.isAdmin();
+      if (!isAdmin) {
+        throw new Error('Access denied. Only administrators can import data.');
+      }
 
-    const { error } = await supabase.rpc('import_data', {
-      projects: validated.projects,
-      resources: validated.resources,
-      allocations: validated.allocations,
-    });
+      const { error } = await supabase.rpc('import_data', {
+        projects: validated.projects,
+        resources: validated.resources,
+        allocations: validated.allocations,
+      });
 
-    if (error) {
-      if (error.message.includes('permission denied')) {
-        throw new Error('You do not have permission to import data. Please contact your administrator.');
+      if (error) {
+        console.error('Import error:', error);
+        if (error.message.includes('permission denied') || error.message.includes('Access denied')) {
+          throw new Error('You do not have permission to import data. Please contact your administrator.');
+        } else if (error.message.includes('Failed to clear existing data')) {
+          throw new Error('Failed to prepare database for import. Please try again.');
+        } else if (error.message.includes('Failed to import')) {
+          throw new Error(error.message);
+        } else {
+          throw new Error('Failed to import data. Please check your file format and try again.');
+        }
+      }
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.error('Validation error:', error);
+        throw new Error('Invalid data format. Please ensure you are using a valid export file.');
       }
       throw error;
     }

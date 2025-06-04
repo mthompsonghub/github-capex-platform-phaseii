@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Upload } from 'lucide-react';
 import { useDataStore } from '../../stores/dataStore';
+import { roles } from '../../lib/supabase';
 import Papa from 'papaparse';
 import toast from 'react-hot-toast';
 import { z } from 'zod';
@@ -38,10 +39,23 @@ const importDataSchema = z.object({
 
 export function ImportDataModal({ isOpen, onClose }: ImportDataModalProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { importAllData } = useDataStore();
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      const isAdminUser = await roles.isAdmin();
+      setIsAdmin(isAdminUser);
+      if (!isAdminUser) {
+        toast.error('Only administrators can import data');
+        onClose();
+      }
+    };
+    checkAdminStatus();
+  }, [onClose]);
+
+  if (!isOpen || !isAdmin) return null;
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -81,15 +95,23 @@ export function ImportDataModal({ isOpen, onClose }: ImportDataModalProps) {
         const data = JSON.parse(text);
         const validatedData = validateImportData(data);
         await importAllData(validatedData);
+        toast.success('Data imported successfully');
+        onClose();
       } else if (file.type === 'text/csv') {
         Papa.parse(file, {
           header: true,
           complete: async (results) => {
-            if (results.errors.length > 0) {
-              throw new Error('Invalid CSV format');
+            try {
+              if (results.errors.length > 0) {
+                throw new Error('Invalid CSV format');
+              }
+              const validatedData = validateImportData(results.data);
+              await importAllData(validatedData);
+              toast.success('Data imported successfully');
+              onClose();
+            } catch (error) {
+              handleError(error);
             }
-            const validatedData = validateImportData(results.data);
-            await importAllData(validatedData);
           },
           error: (error) => {
             throw new Error(`CSV parsing error: ${error.message}`);
@@ -98,15 +120,21 @@ export function ImportDataModal({ isOpen, onClose }: ImportDataModalProps) {
       } else {
         throw new Error('Unsupported file format. Please use JSON or CSV.');
       }
-      
-      toast.success('Data imported successfully');
-      onClose();
     } catch (error) {
-      if (error instanceof Error) {
-        toast.error(error.message);
+      handleError(error);
+    }
+  };
+
+  const handleError = (error: unknown) => {
+    console.error('Import error:', error);
+    if (error instanceof Error) {
+      if (error.message.includes('permission denied') || error.message.includes('Access denied')) {
+        toast.error('You do not have permission to import data. Please contact your administrator.');
       } else {
-        toast.error('Failed to import data');
+        toast.error(`Import failed: ${error.message}`);
       }
+    } else {
+      toast.error('Failed to import data');
     }
   };
 

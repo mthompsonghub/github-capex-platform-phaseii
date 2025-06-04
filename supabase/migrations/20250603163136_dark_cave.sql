@@ -72,7 +72,40 @@ from
 join
     public.projects p on a.project_id = p.id;
 
--- Update import_data function
+-- Create a function to check if a user is an admin
+create or replace function public.is_admin()
+returns boolean as $$
+declare
+  user_role text;
+begin
+  select role into user_role
+  from public.user_roles
+  where user_id = auth.uid();
+  
+  return coalesce(user_role = 'admin', false);
+end;
+$$ language plpgsql security definer;
+
+-- Create admin policy for full access
+create policy "Enable full access for admin users"
+  on public.projects
+  for all
+  to authenticated
+  using (public.is_admin());
+
+create policy "Enable full access for admin users"
+  on public.resources
+  for all
+  to authenticated
+  using (public.is_admin());
+
+create policy "Enable full access for admin users"
+  on public.allocations
+  for all
+  to authenticated
+  using (public.is_admin());
+
+-- Update import_data function with proper permissions
 create or replace function public.import_data(
   projects jsonb,
   resources jsonb,
@@ -80,22 +113,86 @@ create or replace function public.import_data(
 ) returns void
 language plpgsql
 security definer
+set search_path = public
 as $$
+declare
+  error_message text;
+  is_admin_user boolean;
 begin
-  -- Temporarily disable RLS for the session
-  set session_replication_role = 'replica';
+  -- Check if user is admin
+  select public.is_admin() into is_admin_user;
+  if not is_admin_user then
+    raise exception 'Access denied. Only administrators can import data.';
+  end if;
 
-  -- Clear existing data
-  truncate public.allocations cascade;
-  truncate public.resources cascade;
-  truncate public.projects cascade;
-  
-  -- Import new data
-  insert into public.projects select * from jsonb_populate_recordset(null::public.projects, projects);
-  insert into public.resources select * from jsonb_populate_recordset(null::public.resources, resources);
-  insert into public.allocations select * from jsonb_populate_recordset(null::public.allocations, allocations);
+  -- Validate input data
+  if projects is null or resources is null or allocations is null then
+    raise exception 'Invalid input data: all parameters must be provided';
+  end if;
 
-  -- Re-enable RLS
-  set session_replication_role = 'origin';
+  -- Start transaction
+  begin
+    -- Clear existing data with proper error handling
+    begin
+      delete from public.allocations;
+      delete from public.resources;
+      delete from public.projects;
+    exception when others then
+      get stacked diagnostics error_message = message_text;
+      raise exception 'Failed to clear existing data: %', error_message;
+    end;
+    
+    -- Import new data with error handling
+    begin
+      insert into public.projects 
+      select * from jsonb_populate_recordset(null::public.projects, projects)
+      on conflict (id) do update 
+      set name = EXCLUDED.name,
+          status = EXCLUDED.status,
+          priority = EXCLUDED.priority,
+          start_date = EXCLUDED.start_date,
+          end_date = EXCLUDED.end_date,
+          resource_order = EXCLUDED.resource_order;
+    exception when others then
+      get stacked diagnostics error_message = message_text;
+      raise exception 'Failed to import projects: %', error_message;
+    end;
+
+    begin
+      insert into public.resources 
+      select * from jsonb_populate_recordset(null::public.resources, resources)
+      on conflict (id) do update 
+      set name = EXCLUDED.name,
+          title = EXCLUDED.title,
+          department = EXCLUDED.department;
+    exception when others then
+      get stacked diagnostics error_message = message_text;
+      raise exception 'Failed to import resources: %', error_message;
+    end;
+
+    begin
+      insert into public.allocations 
+      select * from jsonb_populate_recordset(null::public.allocations, allocations)
+      on conflict (project_id, resource_id, project_quarter_number) do update 
+      set percentage = EXCLUDED.percentage;
+    exception when others then
+      get stacked diagnostics error_message = message_text;
+      raise exception 'Failed to import allocations: %', error_message;
+    end;
+
+    return;
+  exception when others then
+    raise;
+  end;
 end;
 $$;
+
+-- Reset and grant proper permissions
+revoke all on function public.import_data(jsonb, jsonb, jsonb) from public, authenticated;
+revoke all on function public.is_admin() from public, authenticated;
+
+alter function public.import_data(jsonb, jsonb, jsonb) owner to postgres;
+alter function public.is_admin() owner to postgres;
+
+grant execute on function public.import_data(jsonb, jsonb, jsonb) to authenticated;
+grant execute on function public.is_admin() to authenticated;
