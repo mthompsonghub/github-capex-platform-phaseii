@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { Project, Resource, Allocation } from '../types';
-import { UserRole, UserRoleData } from '../types/roles';
+import { UserRole, UserRoleData, UserManagementData } from '../types/roles';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -76,9 +76,9 @@ export const db = {
         .from('projects')
         .update({
           ...data,
-          // Ensure dates are in the correct format
-          ...(data.start_date && { start_date: new Date(data.start_date).toISOString() }),
-          ...(data.end_date && { end_date: new Date(data.end_date).toISOString() })
+          // Format dates to be stored with time to maintain timezone
+          ...(data.start_date && { start_date: new Date(data.start_date + 'T00:00:00').toISOString() }),
+          ...(data.end_date && { end_date: new Date(data.end_date + 'T00:00:00').toISOString() })
         })
         .eq('id', id)
         .select('*')
@@ -357,12 +357,12 @@ export const roles = {
     }
   },
 
-  async listUserRoles(): Promise<UserRoleWithEmail[]> {
+  async listUserRoles(): Promise<UserManagementData[]> {
     try {
       const { data, error } = await supabase
-        .from('user_roles_with_emails')
+        .from('user_management_view')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('last_login', { ascending: false });
 
       if (error) throw error;
       return data || [];

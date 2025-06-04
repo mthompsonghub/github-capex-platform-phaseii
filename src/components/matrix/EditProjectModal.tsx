@@ -18,7 +18,8 @@ interface FormErrors {
 }
 
 const formatDateForInput = (dateString: string) => {
-  return format(parseISO(dateString), 'yyyy-MM-dd');
+  const date = new Date(dateString);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
 export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalProps) {
@@ -69,11 +70,13 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
     // Parse the YYYY-MM-DD format
     const [year, month, day] = dateString.split('-').map(Number);
     
-    // Create a UTC date at midnight
-    const utcDate = Date.UTC(year, month - 1, day);
+    // Create a date object in the local timezone at the start of the day
+    const date = new Date(year, month - 1, day);
     
-    // Convert to ISO string
-    return new Date(utcDate).toISOString();
+    // Get YYYY-MM-DD format in local timezone
+    return date.getFullYear() + '-' + 
+      String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+      String(date.getDate()).padStart(2, '0');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -94,6 +97,9 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
       await updateProject(project.id, updates);
       toast.success('Project updated successfully');
       onClose();
+      // Instead of page reload, refresh the data
+      const { fetchInitialData } = useDataStore.getState();
+      await fetchInitialData();
     } catch (error) {
       if (error instanceof Error) {
         const errorMessage = error.message === 'Project not found or you do not have permission to update it'

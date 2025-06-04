@@ -224,22 +224,12 @@ export const useDataStore = create<DataState>((set, get) => ({
     }
 
     try {
-      const updatedProject = await db.projects.update(projectId, updates);
-      
-      set(state => {
-        const updatedProjects = state.projects.map(project =>
-          project.id === projectId ? updatedProject : project
-        );
-        projectFuse.setCollection(updatedProjects);
-        return { projects: updatedProjects };
-      });
-
-      if (updates.start_date || updates.end_date) {
-        get().clearInvalidAllocations(projectId);
+      const result = await db.projects.update(projectId, updates);
+      if (result) {
+        await get().fetchInitialData();
       }
     } catch (error) {
       console.error('Error updating project:', error);
-      await get().fetchInitialData();
       throw error;
     }
   },
