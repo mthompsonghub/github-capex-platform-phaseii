@@ -3,6 +3,7 @@ import Fuse from 'fuse.js';
 import { Project, Resource, Allocation, Alert } from '../types';
 import { db, importExport } from '../lib/supabase';
 import { parseISO, differenceInQuarters, startOfQuarter, addQuarters } from 'date-fns';
+import { supabase } from '../lib/supabase';
 
 interface DataState {
   projects: Project[];
@@ -10,6 +11,7 @@ interface DataState {
   allocations: Allocation[];
   searchTerm: string;
   alerts: Alert[];
+  isLoading: boolean;
   fetchInitialData: () => Promise<void>;
   getProjectResources: (projectId: string) => Resource[];
   getAllocation: (projectId: string, resourceId: string, year: number, quarter: number) => number;
@@ -35,14 +37,15 @@ interface DataState {
   reorderProjectResources: (projectId: string, draggedResourceId: string, targetResourceId: string) => Promise<void>;
   addAlert: (alert: Alert) => void;
   clearAlerts: () => void;
+  refreshProjects: () => Promise<void>;
 }
 
-const projectFuse = new Fuse([], {
+const projectFuse = new Fuse<Project>([], {
   keys: ['name'],
   threshold: 0.3,
 });
 
-const resourceFuse = new Fuse([], {
+const resourceFuse = new Fuse<Resource>([], {
   keys: ['name', 'title'],
   threshold: 0.3,
   distance: 100,
@@ -54,9 +57,18 @@ export const useDataStore = create<DataState>((set, get) => ({
   allocations: [],
   searchTerm: '',
   alerts: [],
+  isLoading: false,
 
   fetchInitialData: async () => {
+    const state = get();
+    if (state.isLoading) {
+      console.log('Already fetching data, skipping duplicate fetch');
+      return;
+    }
+
     console.log('Fetching initial data...');
+    set({ isLoading: true });
+    
     try {
       const [projects, resources, allocations] = await Promise.all([
         db.projects.list(),
@@ -70,12 +82,23 @@ export const useDataStore = create<DataState>((set, get) => ({
         allocationsCount: allocations.length
       });
 
-      set({ projects, resources, allocations });
+      set({ 
+        projects, 
+        resources, 
+        allocations,
+        isLoading: false 
+      });
+      
       projectFuse.setCollection(projects);
       resourceFuse.setCollection(resources);
     } catch (error) {
       console.error('Failed to fetch initial data:', error);
-      set({ projects: [], resources: [], allocations: [] });
+      set({ 
+        projects: [], 
+        resources: [], 
+        allocations: [],
+        isLoading: false 
+      });
       projectFuse.setCollection([]);
       resourceFuse.setCollection([]);
       throw error;
@@ -496,4 +519,21 @@ export const useDataStore = create<DataState>((set, get) => ({
   })),
 
   clearAlerts: () => set({ alerts: [] }),
+
+  refreshProjects: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select(`
+          *,
+          project_milestones (*)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      set({ projects: data || [] });
+    } catch (error) {
+      console.error('Error refreshing projects:', error);
+    }
+  }
 }));

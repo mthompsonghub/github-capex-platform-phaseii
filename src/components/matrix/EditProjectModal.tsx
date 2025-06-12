@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useDataStore } from '../../stores/dataStore';
-import { Project } from '../../types';
+import { Project, ProjectStatus, ProjectPriority } from '../../types';
 import toast from 'react-hot-toast';
 import { format, parseISO } from 'date-fns';
 
@@ -22,13 +22,19 @@ const formatDateForInput = (dateString: string) => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
+const STATUS_OPTIONS = ['Active', 'Inactive', 'Planned', 'Completed', 'On Hold'] as const;
+const PRIORITY_OPTIONS = ['Critical', 'High', 'Medium', 'Low'] as const;
+
+const baseInputStyles = 'w-full px-3 py-2 border-gray-200 rounded-md bg-white hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors duration-200';
+
 export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalProps) {
   const [formData, setFormData] = useState({
     name: project.name,
+    owner: project.owner,
     status: project.status,
     priority: project.priority,
-    start_date: formatDateForInput(project.start_date),
-    end_date: formatDateForInput(project.end_date),
+    start_date: project.start_date,
+    end_date: project.end_date
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -140,8 +146,8 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 disabled={isSubmitting}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent ${
-                  errors.name ? 'border-red-500' : 'border-gray-300'
+                className={`${baseInputStyles} ${
+                  errors.name ? 'border-red-500' : ''
                 } disabled:bg-gray-100 disabled:cursor-not-allowed`}
               />
               {errors.name && (
@@ -154,15 +160,13 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
               </label>
               <select
                 value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as Project['status'] })}
+                onChange={(e) => setFormData({ ...formData, status: e.target.value as ProjectStatus })}
                 disabled={isSubmitting}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className={`${baseInputStyles} disabled:bg-gray-100 disabled:cursor-not-allowed`}
               >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-                <option value="Planned">Planned</option>
-                <option value="Completed">Completed</option>
-                <option value="On Hold">On Hold</option>
+                {STATUS_OPTIONS.map(status => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -171,14 +175,13 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
               </label>
               <select
                 value={formData.priority}
-                onChange={(e) => setFormData({ ...formData, priority: e.target.value as Project['priority'] })}
+                onChange={(e) => setFormData({ ...formData, priority: e.target.value as ProjectPriority })}
                 disabled={isSubmitting}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className={`${baseInputStyles} disabled:bg-gray-100 disabled:cursor-not-allowed`}
               >
-                <option value="Critical">Critical</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
+                {PRIORITY_OPTIONS.map(priority => (
+                  <option key={priority} value={priority}>{priority}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -190,8 +193,8 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
                 value={formData.start_date}
                 onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
                 disabled={isSubmitting}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent ${
-                  errors.start_date ? 'border-red-500' : 'border-gray-300'
+                className={`${baseInputStyles} ${
+                  errors.start_date ? 'border-red-500' : ''
                 } disabled:bg-gray-100 disabled:cursor-not-allowed`}
               />
               {errors.start_date && (
@@ -207,8 +210,8 @@ export function EditProjectModal({ isOpen, onClose, project }: EditProjectModalP
                 value={formData.end_date}
                 onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
                 disabled={isSubmitting}
-                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-union-red focus:border-transparent ${
-                  errors.end_date ? 'border-red-500' : 'border-gray-300'
+                className={`${baseInputStyles} ${
+                  errors.end_date ? 'border-red-500' : ''
                 } disabled:bg-gray-100 disabled:cursor-not-allowed`}
               />
               {errors.end_date && (

@@ -1,32 +1,46 @@
-import { useState } from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { Tabs } from './Tabs';
-import { MatrixView } from './matrix/MatrixView';
-import { ResourceSummary } from './resources/ResourceSummary';
-import { ProjectSummary } from './projects/ProjectSummary';
-
-type Tab = 'matrix' | 'resources' | 'projects';
+import { Routes, Route, Navigate, Link, useLocation } from "react-router-dom";
+import { MatrixView } from "./matrix/MatrixView";
+import { ProjectSummary } from "./projects/ProjectSummary";
+import { ResourceSummary } from "./resources/ResourceSummary";
 
 export function ResourceMatrixApp() {
-  const [activeTab, setActiveTab] = useState<Tab>('matrix');
   const location = useLocation();
-
-  // Handle tab changes through routing
-  const handleTabChange = (tab: Tab) => {
-    setActiveTab(tab);
-  };
-
+  
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Tabs activeTab={activeTab} onTabChange={handleTabChange} />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Routes>
-          <Route path="/" element={<MatrixView />} />
-          <Route path="/resources" element={<ResourceSummary />} />
-          <Route path="/projects" element={<ProjectSummary />} />
-          <Route path="*" element={<Navigate to="." replace />} />
-        </Routes>
-      </main>
+    <div className="flex flex-col h-full">
+      <nav className="flex space-x-4 mb-4 px-4 py-2 bg-white shadow">
+        <Link
+          to="matrix"
+          className={`px-3 py-2 rounded-md ${
+            location.pathname.includes('/matrix') ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          Matrix View
+        </Link>
+        <Link
+          to="resources"
+          className={`px-3 py-2 rounded-md ${
+            location.pathname.includes('/resources') ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          Resources
+        </Link>
+        <Link
+          to="projects"
+          className={`px-3 py-2 rounded-md ${
+            location.pathname.includes('/projects') ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          Projects
+        </Link>
+      </nav>
+      
+      <Routes>
+        <Route index element={<Navigate to="matrix" replace />} />
+        <Route path="matrix" element={<MatrixView />} />
+        <Route path="resources" element={<ResourceSummary />} />
+        <Route path="projects" element={<ProjectSummary />} />
+      </Routes>
     </div>
   );
 }

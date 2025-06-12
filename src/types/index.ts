@@ -1,7 +1,7 @@
 export type Project = {
   id: string;
   name: string;
-  status: 'Active' | 'Inactive' | 'Planned' | 'Completed' | 'On Hold';
+  status: ProjectStatus;
   priority: 'Critical' | 'High' | 'Medium' | 'Low';
   start_date: string;
   end_date: string;
@@ -59,3 +59,25 @@ export type OverAllocationAlert = {
   quarter: { year: number; quarter: number };
   totalPercentage: number;
 };
+
+export interface KPITarget {
+  id: string;
+  project_id: string;
+  phase: string;
+  component: string;
+  target_date: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KPIActual {
+  id: string;
+  project_id: string;
+  phase: string;
+  component: string;
+  completion_date: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export type ProjectStatus = 'Active' | 'Inactive' | 'Planned' | 'Completed' | 'On Hold';

@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { LayoutDashboard, Users } from 'lucide-react';
+import { LayoutDashboard, Users, Table } from 'lucide-react';
 import { UserRolesManager } from './UserRolesManager';
 import { roles } from '../lib/supabase';
 import { UserRole } from '../types/roles';
+import { CapExActualsTable } from './capex/CapExActualsTable';
 
 export function CapExDashboard() {
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showTable, setShowTable] = useState(false);
 
   useEffect(() => {
     const loadUserRole = async () => {
@@ -55,6 +57,14 @@ export function CapExDashboard() {
             <span className="text-lg font-medium">Resource Matrix</span>
           </Link>
 
+          <button
+            onClick={() => setShowTable(prev => !prev)}
+            className="group relative flex flex-col items-center justify-center p-6 border border-transparent rounded-lg shadow-sm bg-union-red text-white hover:bg-union-red-dark transition-all duration-200"
+          >
+            <Table className="h-8 w-8 mb-2" />
+            <span className="text-lg font-medium">CapEx Actuals</span>
+          </button>
+
           {userRole === 'admin' && (
             <button
               onClick={() => document.getElementById('user-roles-section')?.scrollIntoView({ behavior: 'smooth' })}
@@ -65,6 +75,12 @@ export function CapExDashboard() {
             </button>
           )}
         </div>
+
+        {showTable && (
+          <div className="mt-8">
+            <CapExActualsTable />
+          </div>
+        )}
 
         {userRole === 'admin' && (
           <div id="user-roles-section" className="mt-12">

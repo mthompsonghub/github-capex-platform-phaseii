@@ -1,54 +1,21 @@
 import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
-import { Project, Resource } from '../../types';
-import { format, parseISO } from 'date-fns';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { Project, Resource, ProjectCompletion } from '../../types';
+import { KPIDashboard } from '../kpi/KPIDashboard';
+import { KPITargetForm } from '../kpi/KPITargetForm';
+import { KPIActualForm } from '../kpi/KPIActualForm';
+import { getProjectKPIs, createKPITarget, createKPIActual } from '../../lib/kpi';
+import { toast } from 'react-hot-toast';
 
 interface ProjectCardProps {
   project: Project;
-  quarters: { year: number; quarter: number }[];
+  quarters: { year: number; quarter: number; }[];
   calculateAllocation: (year: number, quarter: number) => number;
   getProjectResources: () => Resource[];
   getAllocation: (resourceId: string, year: number, quarter: number) => number;
   getStatusColor: (status: string) => string;
   getPriorityColor: (priority: string) => string;
-  resetTrigger?: number;
-}
-
-function DonutChart({ percentage }: { percentage: number }) {
-  const radius = 20;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDasharray = `${(percentage / 100) * circumference} ${circumference}`;
-  const getColor = (value: number) => {
-    if (value >= 80) return '#22C55E'; // green-500
-    if (value >= 50) return '#3B82F6'; // blue-500
-    return '#EAB308'; // yellow-500
-  };
-
-  return (
-    <div className="relative w-[50px] h-[50px] flex items-center justify-center">
-      <svg className="transform -rotate-90 w-[50px] h-[50px]">
-        <circle
-          cx="25"
-          cy="25"
-          r={radius}
-          stroke="#E5E7EB"
-          strokeWidth="4"
-          fill="none"
-        />
-        <circle
-          cx="25"
-          cy="25"
-          r={radius}
-          stroke={getColor(percentage)}
-          strokeWidth="4"
-          strokeDasharray={strokeDasharray}
-          strokeLinecap="round"
-          fill="none"
-        />
-      </svg>
-      <span className="absolute text-xs font-medium">{Math.round(percentage)}%</span>
-    </div>
-  );
+  resetTrigger: number;
 }
 
 export function ProjectCard({
@@ -59,147 +26,176 @@ export function ProjectCard({
   getAllocation,
   getStatusColor,
   getPriorityColor,
-  resetTrigger,
+  resetTrigger
 }: ProjectCardProps) {
-  const [selectedQuarter, setSelectedQuarter] = useState<{
-    year: number;
-    quarter: number;
-  } | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [showKPIForms, setShowKPIForms] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [kpiData, setKPIData] = useState<{
+    targets: any[];
+    actuals: any[];
+    completion: ProjectCompletion[];
+  }>({ targets: [], actuals: [], completion: [] });
 
   useEffect(() => {
-    if (resetTrigger) {
-      setSelectedQuarter(null);
+    if (isExpanded) {
+      loadKPIData();
     }
-  }, [resetTrigger]);
+  }, [isExpanded, project.id]);
 
-  // Only show 4 quarters
-  const visibleQuarters = quarters.slice(0, 4);
-  const resources = getProjectResources();
-
-  const handleQuarterClick = (year: number, quarter: number) => {
-    setSelectedQuarter(selectedQuarter?.year === year && selectedQuarter?.quarter === quarter
-      ? null
-      : { year, quarter }
-    );
+  const loadKPIData = async () => {
+    setIsLoading(true);
+    setError(undefined);
+    try {
+      const data = await getProjectKPIs(project.id);
+      setKPIData(data);
+    } catch (error) {
+      console.error('Error loading KPI data:', error);
+      setError('Failed to load KPI data. Please try again later.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Calculate average allocation across visible quarters
-  const averageAllocation = visibleQuarters.length > 0
-    ? visibleQuarters.reduce((sum, q) => sum + calculateAllocation(q.year, q.quarter), 0) / visibleQuarters.length
-    : 0;
+  const handleCreateTarget = async (target: any) => {
+    try {
+      await createKPITarget(target);
+      await loadKPIData();
+      toast.success('KPI target set successfully');
+    } catch (error) {
+      console.error('Error creating KPI target:', error);
+      toast.error('Failed to set KPI target');
+    }
+  };
+
+  const handleCreateActual = async (actual: any) => {
+    try {
+      await createKPIActual(actual);
+      await loadKPIData();
+      toast.success('KPI completion recorded successfully');
+    } catch (error) {
+      console.error('Error creating KPI actual:', error);
+      toast.error('Failed to record KPI completion');
+    }
+  };
+
+  const resources = getProjectResources();
 
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden transition-all duration-200 hover:shadow-lg">
-      <div className="p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex-1 space-y-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">{project.name}</h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                    {project.status}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPriorityColor(project.priority)}`}>
-                    {project.priority}
-                  </span>
-                </div>
-                <p className="text-sm text-gray-500 mt-1">
-                  {format(parseISO(project.start_date), 'MMM d, yyyy')} - {format(parseISO(project.end_date), 'MMM d, yyyy')}
-                </p>
-              </div>
-              <DonutChart percentage={averageAllocation} />
-            </div>
-            
-            {/* Resource count and list */}
-            <div className="mt-3">
-              <div className="text-sm text-gray-600 mb-2">
-                {resources.length} Resource{resources.length !== 1 ? 's' : ''}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {resources.map(resource => (
-                  <div
-                    key={resource.id}
-                    className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs font-medium"
-                  >
-                    {resource.name}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Compact Quarter View */}
-            <div className="flex gap-2 mt-3">
-              {visibleQuarters.map(({ year, quarter }) => {
-                const allocation = calculateAllocation(year, quarter);
-                const isSelected = selectedQuarter?.year === year && selectedQuarter?.quarter === quarter;
-                
-                return (
-                  <button
-                    key={`${year}-Q${quarter}`}
-                    onClick={() => handleQuarterClick(year, quarter)}
-                    className={`flex-1 py-1 px-2 rounded text-center transition-all ${
-                      isSelected
-                        ? 'ring-2 ring-union-red ring-offset-1'
-                        : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="text-xs font-medium text-gray-600 mb-1">
-                      Q{quarter}
-                    </div>
-                    <div className={`text-xs font-medium rounded-full px-1.5 py-0.5 ${
-                      allocation >= 80 ? 'bg-green-100 text-green-800' :
-                      allocation >= 50 ? 'bg-blue-100 text-blue-800' :
-                      allocation > 0 ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {Math.round(allocation)}%
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+    <div className="bg-white rounded-lg shadow-sm border p-6 space-y-4">
+      <div className="flex justify-between items-start">
+        <div>
+          <h3 className="text-lg font-semibold">{project.name}</h3>
+          <div className="flex space-x-2 mt-2">
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+              {project.status}
+            </span>
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityColor(project.priority)}`}>
+              {project.priority}
+            </span>
+            <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+              {project.project_type === 'project' ? 'Project' : 'Asset Purchase'}
+            </span>
           </div>
         </div>
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-1 hover:bg-gray-100 rounded-full"
+        >
+          {isExpanded ? (
+            <ChevronUp className="h-5 w-5 text-gray-500" />
+          ) : (
+            <ChevronDown className="h-5 w-5 text-gray-500" />
+          )}
+        </button>
+      </div>
 
-        {selectedQuarter && (
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg relative">
-            <button
-              onClick={() => setSelectedQuarter(null)}
-              className="absolute top-2 right-2 p-1 hover:bg-gray-200 rounded-full"
-            >
-              <X className="h-4 w-4 text-gray-500" />
-            </button>
-            <h4 className="text-sm font-medium text-gray-900 mb-3">
-              Q{selectedQuarter.quarter} {selectedQuarter.year} Resource Allocations
-            </h4>
-            <div className="space-y-2">
-              {resources.map(resource => {
-                const allocation = getAllocation(resource.id, selectedQuarter.year, selectedQuarter.quarter);
-                if (allocation === 0) return null;
-                
+      {isExpanded && (
+        <div className="space-y-4">
+          <div className="border-t pt-4">
+            <h4 className="text-sm font-medium text-gray-900 mb-2">Project Timeline</h4>
+            <div className="grid grid-cols-4 gap-2">
+              {quarters.map(({ year, quarter }) => {
+                const allocation = calculateAllocation(year, quarter);
                 return (
                   <div
-                    key={resource.id}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-white"
+                    key={`${year}-${quarter}`}
+                    className="text-center p-2 text-xs"
+                    style={{
+                      backgroundColor: `rgba(239, 68, 68, ${allocation / 100})`,
+                      color: allocation > 50 ? 'white' : 'black'
+                    }}
                   >
-                    <div>
-                      <div className="font-medium text-sm">{resource.name}</div>
-                      <div className="text-xs text-gray-500">{resource.title}</div>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      allocation >= 80 ? 'bg-orange-100 text-orange-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {allocation}%
-                    </span>
+                    {`Q${quarter} ${year}`}
+                    <br />
+                    {`${Math.round(allocation)}%`}
                   </div>
                 );
               })}
             </div>
           </div>
-        )}
-      </div>
+
+          <div className="border-t pt-4">
+            <h4 className="text-sm font-medium text-gray-900 mb-2">Resources</h4>
+            <div className="space-y-2">
+              {resources.map(resource => (
+                <div key={resource.id} className="flex items-center justify-between text-sm">
+                  <span>{resource.name}</span>
+                  <div className="flex space-x-2">
+                    {quarters.map(({ year, quarter }) => {
+                      const allocation = getAllocation(resource.id, year, quarter);
+                      return (
+                        <span
+                          key={`${resource.id}-${year}-${quarter}`}
+                          className="w-12 text-center"
+                          style={{ color: allocation > 0 ? 'black' : 'gray' }}
+                        >
+                          {allocation}%
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t pt-4">
+            <div className="flex justify-between items-center mb-4">
+              <h4 className="text-sm font-medium text-gray-900">KPI Tracking</h4>
+              <button
+                onClick={() => setShowKPIForms(!showKPIForms)}
+                className="text-sm text-blue-600 hover:text-blue-800"
+                disabled={isLoading || !!error}
+              >
+                {showKPIForms ? 'Hide Forms' : 'Show Forms'}
+              </button>
+            </div>
+            
+            <KPIDashboard 
+              project={project} 
+              completion={kpiData.completion}
+              isLoading={isLoading}
+              error={error}
+            />
+
+            {showKPIForms && !isLoading && !error && (
+              <div className="mt-4 space-y-4">
+                <KPITargetForm
+                  project={project}
+                  onSubmit={handleCreateTarget}
+                />
+                <KPIActualForm
+                  project={project}
+                  targets={kpiData.targets}
+                  onSubmit={handleCreateActual}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

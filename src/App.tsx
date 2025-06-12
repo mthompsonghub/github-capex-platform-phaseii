@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Header } from './components/Header';
 import { Auth } from './components/Auth';
@@ -7,14 +7,17 @@ import { Toaster } from 'react-hot-toast';
 import { useDataStore } from './stores/dataStore';
 import { APP_VERSION, hasVersionChanged, updateStoredVersion, clearAuthData } from './config/appConfig';
 import toast from 'react-hot-toast';
-import { CapExDashboard } from './components/CapExDashboard';
+import { Dashboard } from './components/Dashboard';
 import { ResourceMatrixApp } from './components/ResourceMatrixApp';
+import { KPIOverviewPage } from './pages/KPIOverviewPage';
+import { UserManagement } from './components/UserManagement';
 import { Session } from '@supabase/supabase-js';
 
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { fetchInitialData } = useDataStore();
+  const initialDataLoaded = useRef(false);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -46,9 +49,10 @@ function App() {
           return;
         }
 
-        if (initialSession) {
+        if (initialSession && !initialDataLoaded.current) {
           setSession(initialSession);
           await fetchInitialData();
+          initialDataLoaded.current = true;
         }
       } catch (error) {
         console.error('Error during initialization:', error);
@@ -64,16 +68,18 @@ function App() {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event);
       
-      if (event === 'SIGNED_IN') {
+      if (event === 'SIGNED_IN' && !initialDataLoaded.current) {
         setSession(session);
         try {
           await fetchInitialData();
+          initialDataLoaded.current = true;
         } catch (error) {
           console.error('Error fetching data after sign in:', error);
           toast.error('Failed to load your data. Please refresh the page.');
         }
       } else if (event === 'SIGNED_OUT') {
         setSession(null);
+        initialDataLoaded.current = false;
       }
     });
 
@@ -90,20 +96,25 @@ function App() {
 
   return (
     <Router>
-      <Toaster position="top-right" />
-      {session && <Header session={session} />}
-      <Routes>
-        <Route path="/" element={!session ? <Auth /> : <Navigate to="/dashboard" />} />
-        <Route
-          path="/dashboard"
-          element={session ? <CapExDashboard /> : <Navigate to="/" />}
-        />
-        <Route
-          path="/apps/resource-matrix/*"
-          element={session ? <ResourceMatrixApp /> : <Navigate to="/" />}
-        />
-        <Route path="*" element={<Navigate to={session ? "/dashboard" : "/"} replace />} />
-      </Routes>
+      <div className="min-h-screen bg-gray-50">
+        <Toaster />
+        {!session ? (
+          <Auth />
+        ) : (
+          <>
+            <Header />
+            <main className="pt-16">
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/resource-matrix/*" element={<ResourceMatrixApp />} />
+                <Route path="/kpi-overview" element={<KPIOverviewPage />} />
+                <Route path="/user-management" element={<UserManagement />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </main>
+          </>
+        )}
+      </div>
     </Router>
   );
 }

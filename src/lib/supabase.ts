@@ -239,18 +239,18 @@ export const db = {
 export const importExport = {
   async exportData() {
     try {
-      const [projects, resources, allocations] = await Promise.all([
-        db.projects.list(),
-        db.resources.list(),
-        db.allocations.list(),
-      ]);
+    const [projects, resources, allocations] = await Promise.all([
+      db.projects.list(),
+      db.resources.list(),
+      db.allocations.list(),
+    ]);
 
-      return {
-        projects,
-        resources,
-        allocations,
-        exported_at: new Date().toISOString(),
-      };
+    return {
+      projects,
+      resources,
+      allocations,
+      exported_at: new Date().toISOString(),
+    };
     } catch (error) {
       console.error('Export error:', error);
       throw new Error('Failed to export data. Please try again.');
@@ -266,7 +266,7 @@ export const importExport = {
     });
 
     try {
-      const validated = importSchema.parse(data);
+    const validated = importSchema.parse(data);
       
       // First check if user is admin
       const isAdmin = await roles.isAdmin();
@@ -274,16 +274,16 @@ export const importExport = {
         throw new Error('Access denied. Only administrators can import data.');
       }
 
-      const { error } = await supabase.rpc('import_data', {
-        projects: validated.projects,
-        resources: validated.resources,
-        allocations: validated.allocations,
-      });
+    const { error } = await supabase.rpc('import_data', {
+      projects: validated.projects,
+      resources: validated.resources,
+      allocations: validated.allocations,
+    });
 
-      if (error) {
+    if (error) {
         console.error('Import error:', error);
         if (error.message.includes('permission denied') || error.message.includes('Access denied')) {
-          throw new Error('You do not have permission to import data. Please contact your administrator.');
+        throw new Error('You do not have permission to import data. Please contact your administrator.');
         } else if (error.message.includes('Failed to clear existing data')) {
           throw new Error('Failed to prepare database for import. Please try again.');
         } else if (error.message.includes('Failed to import')) {

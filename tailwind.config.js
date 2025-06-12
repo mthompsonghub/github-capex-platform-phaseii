@@ -4,9 +4,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        'union-red': '#C4161C',
-        'union-red-dark': '#A11217',
-        'union-gray': '#2F3640',
+        'union-red': '#E31837',
+        'union-red-dark': '#B31329',
+        'union-gray': '#333333',
+        'union-blue': '#0066B3',
       },
     },
   },

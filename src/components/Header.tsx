@@ -1,69 +1,44 @@
-import { LogOut } from 'lucide-react';
-import { Session } from '@supabase/supabase-js';
+import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { useDataStore } from '../stores/dataStore';
 
-interface HeaderProps {
-  session: Session;
-}
-
-export function Header({ session }: HeaderProps) {
+export function Header() {
   const location = useLocation();
-  const navigate = useNavigate();
-  const isResourceMatrix = location.pathname.startsWith('/apps/resource-matrix');
+  const isActive = (path: string) => location.pathname === path;
 
-  const handleLogout = async () => {
-    console.log('Starting logout process');
+  const handleSignOut = async () => {
     try {
-      console.log('Calling supabase.auth.signOut()');
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      console.log('Supabase signOut completed successfully');
-
-      toast.success('Successfully logged out', {
-        duration: 2000,
-        position: 'top-center'
-      });
-
-      navigate('/', { replace: true });
+      await supabase.auth.signOut();
+      toast.success('Signed out successfully');
     } catch (error) {
-      console.error('Logout error:', error);
-      if (error instanceof Error) {
-        toast.error(error.message);
-      } else {
-        toast.error('An error occurred while logging out');
-      }
+      console.error('Error signing out:', error);
+      toast.error('Failed to sign out');
     }
   };
 
   return (
-    <header className="bg-white shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div className="flex items-center justify-between">
-          <Link to="/dashboard" className="flex items-center group">
-            <img 
-              src="/logo union agener.jpg" 
-              alt="Union Agener Logo" 
-              className="h-10 w-auto transition-transform duration-200 group-hover:scale-105"
-            />
-            <div className="ml-4">
-              <h1 className="text-2xl font-semibold text-gray-900">
-                {isResourceMatrix ? 'Project Resource Matrix' : 'CapEx Platform'}
-              </h1>
-              <p className="text-sm text-gray-500">
-                {isResourceMatrix ? 'CapEx Resource Planning Tool' : 'Enterprise Resource Management'}
-              </p>
-            </div>
-          </Link>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-600">{session.user.email}</span>
+    <header className="fixed top-0 left-0 right-0 bg-white shadow-sm z-50">
+      <div className="container mx-auto px-4">
+        <div className="flex items-center justify-between h-16">
+          <div className="flex items-center gap-8">
+            <Link to="/" className="flex items-center gap-2">
+              <img 
+                src="/logo union agener.jpg" 
+                alt="Union Agener Logo" 
+                className="h-8 w-auto"
+              />
+              <div>
+                <h1 className="text-lg font-semibold">CapEx Platform</h1>
+                <p className="text-xs text-gray-500">Enterprise Resource Management</p>
+              </div>
+            </Link>
+          </div>
+
+          <div className="flex items-center gap-4">
             <button
-              onClick={handleLogout}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-union-red hover:bg-union-red-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-union-red transition-colors duration-200"
+              onClick={handleSignOut}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
             >
-              <LogOut className="h-4 w-4 mr-2" />
               Sign Out
             </button>
           </div>

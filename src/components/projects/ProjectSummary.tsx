@@ -8,7 +8,7 @@ import { ProjectCard } from './ProjectCard';
 import Fuse from 'fuse.js';
 import { parseISO, differenceInQuarters, startOfQuarter } from 'date-fns';
 
-type StatusFilter = 'All' | 'Active' | 'Planned' | 'On Hold' | 'Completed';
+type StatusFilter = 'All' | 'Active' | 'Inactive' | 'Planned' | 'Completed' | 'On Hold';
 type PriorityFilter = 'All' | 'Critical' | 'High' | 'Medium' | 'Low';
 
 export function ProjectSummary() {
@@ -120,6 +120,15 @@ export function ProjectSummary() {
       return a.name.localeCompare(b.name);
     });
 
+  const statusCounts = {
+    'All': projects.length,
+    'Active': projects.filter(p => p.status === 'Active').length,
+    'Inactive': projects.filter(p => p.status === 'Inactive').length,
+    'Planned': projects.filter(p => p.status === 'Planned').length,
+    'Completed': projects.filter(p => p.status === 'Completed').length,
+    'On Hold': projects.filter(p => p.status === 'On Hold').length,
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -150,13 +159,14 @@ export function ProjectSummary() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-              className="border-gray-300 rounded-md text-sm"
+              className="border rounded px-2 py-1"
             >
-              <option value="All">All Status</option>
+              <option value="All">All</option>
               <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
               <option value="Planned">Planned</option>
-              <option value="On Hold">On Hold</option>
               <option value="Completed">Completed</option>
+              <option value="On Hold">On Hold</option>
             </select>
             <select
               value={priorityFilter}
