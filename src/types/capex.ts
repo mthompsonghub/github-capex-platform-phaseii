@@ -267,4 +267,15 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
   },
 ];
 
-export const STATUS_PERCENTAGES: StatusPercentage[] = ['0%', '25%', '50%', '75%', '100%', 'N/A']; 
+export const STATUS_PERCENTAGES: StatusPercentage[] = ['0%', '25%', '50%', '75%', '100%', 'N/A'];
+
+export interface ModalState<T> {
+  isOpen: boolean;
+  data: T | null;
+}
+
+export interface AdminSettings {
+  onTrackThreshold: number;
+  atRiskThreshold: number;
+  showFinancials: boolean;
+} 

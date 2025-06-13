@@ -4,6 +4,7 @@ import { Project, Resource, Allocation, Alert } from '../types';
 import { db, importExport } from '../lib/supabase';
 import { parseISO, differenceInQuarters, startOfQuarter, addQuarters } from 'date-fns';
 import { supabase } from '../lib/supabase';
+import { toast } from 'react-hot-toast';
 
 interface DataState {
   projects: Project[];
@@ -69,6 +70,13 @@ export const useDataStore = create<DataState>((set, get) => ({
     console.log('Fetching initial data...');
     set({ isLoading: true });
     
+    // Safety timeout for loading state
+    const loadingTimeout = setTimeout(() => {
+      console.error('Data fetch timeout reached');
+      set({ isLoading: false });
+      toast.error('Failed to load data. Please refresh the page.');
+    }, 10000);
+
     try {
       const [projects, resources, allocations] = await Promise.all([
         db.projects.list(),
@@ -101,7 +109,10 @@ export const useDataStore = create<DataState>((set, get) => ({
       });
       projectFuse.setCollection([]);
       resourceFuse.setCollection([]);
+      toast.error('Failed to load data. Please refresh the page.');
       throw error;
+    } finally {
+      clearTimeout(loadingTimeout);
     }
   },
 

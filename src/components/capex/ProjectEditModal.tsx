@@ -31,11 +31,12 @@ import {
   Chip
 } from '@mui/material';
 import { X as CloseIcon, Lock as LockIcon, AlertTriangle } from 'lucide-react';
-import { Project, PhaseProgress, calculatePhaseCompletion, calculateOverallCompletion, STATUS_THRESHOLDS, determineProjectStatus } from './data/capexData';
+import { Project, PhaseProgress, calculatePhaseCompletion, calculateOverallCompletion, determineProjectStatus } from './data/capexData';
 import { CapExRecord, Phase } from '../../types/capex';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../../utils/projectUtils';
 import { roles } from '../../lib/supabase';
 import toast from 'react-hot-toast';
+import { useAdminSettings } from '../../stores/capexStore';
 
 type ProjectStatus = 'On Track' | 'At Risk' | 'Impacted';
 
@@ -96,6 +97,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   project: initialProject,
   onSave,
 }) => {
+  const adminSettings = useAdminSettings();
   const [activeTab, setActiveTab] = useState(0);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
@@ -151,7 +153,12 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
         : convertCapExRecordToProject(editedProject);
       
       const completion = calculateOverallCompletion(projectData);
-      const newStatus = determineProjectStatus(completion, 100);
+      const newStatus = determineProjectStatus(
+        completion,
+        100,
+        adminSettings.onTrackThreshold,
+        adminSettings.atRiskThreshold
+      );
       setCalculatedStatus(newStatus);
       
       // Check if status has changed
@@ -179,7 +186,7 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
         setTimeout(() => setStatusChanged(false), 2000);
       }
     }
-  }, [editedProject, overallCompletion]);
+  }, [editedProject, overallCompletion, adminSettings]);
 
   const calculatePhaseCompletionExcludingNA = (subItems: any[]): number => {
     const validItems = subItems.filter(item => !item.isNA);
@@ -557,8 +564,8 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
                   Current Completion: {Math.round(overallCompletion)}%
                 </Typography>
                 <Typography variant="body2" color="textSecondary">
-                  Status Thresholds: On Track ≥{Math.round(STATUS_THRESHOLDS.ON_TRACK * 100)}%, 
-                  At Risk ≥{Math.round(STATUS_THRESHOLDS.AT_RISK * 100)}%
+                  Status Thresholds: On Track ≥{Math.round(adminSettings.onTrackThreshold * 100)}%, 
+                  At Risk ≥{Math.round(adminSettings.atRiskThreshold * 100)}%
                 </Typography>
               </Grid>
               <Grid item xs={6}>
@@ -776,12 +783,12 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <Typography variant="body2" color="success.main">
-                      On Track: ≥{Math.round(STATUS_THRESHOLDS.ON_TRACK * 100)}%
+                      On Track: ≥{Math.round(adminSettings.onTrackThreshold * 100)}%
                     </Typography>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <Typography variant="body2" color="warning.main">
-                      At Risk: ≥{Math.round(STATUS_THRESHOLDS.AT_RISK * 100)}%
+                      At Risk: ≥{Math.round(adminSettings.atRiskThreshold * 100)}%
                     </Typography>
                   </Grid>
                 </Grid>

@@ -221,61 +221,45 @@ export const PHASE_SUB_ITEMS = {
   ]
 } as const;
 
-// Default thresholds
-const DEFAULT_THRESHOLDS = {
-  ON_TRACK: 0.9,   // >= 90% of target
-  AT_RISK: 0.8,    // >= 80% but < 90% of target
-  IMPACTED: 0      // < 80% of target
-} as const;
+// Status Thresholds
+export interface ThresholdSettings {
+  atRiskThreshold: number;
+  impactedThreshold: number;
+}
 
-// Get thresholds from localStorage or use defaults
-const getStoredThresholds = () => {
-  const stored = localStorage.getItem('capex_status_thresholds');
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      // Validate stored values
-      if (typeof parsed.AT_RISK === 'number' && 
-          typeof parsed.ON_TRACK === 'number' &&
-          parsed.AT_RISK > 0 && 
-          parsed.AT_RISK < parsed.ON_TRACK && 
-          parsed.ON_TRACK < 1) {
-        return parsed;
-      }
-    } catch (e) {
-      console.warn('Invalid stored thresholds, using defaults');
-    }
-  }
-  return DEFAULT_THRESHOLDS;
+export const defaultSettings: ThresholdSettings = {
+  atRiskThreshold: 0.8,
+  impactedThreshold: 0.7
 };
 
-// Export current thresholds
-export const STATUS_THRESHOLDS = getStoredThresholds();
-
-// Function to update thresholds
-export const updateStatusThresholds = (
-  impactedThreshold: number,
-  atRiskThreshold: number
-): boolean => {
-  // Validate thresholds
-  if (impactedThreshold >= 0 && 
-      impactedThreshold < atRiskThreshold && 
-      atRiskThreshold < 1) {
-    const newThresholds = {
-      ON_TRACK: atRiskThreshold,
-      AT_RISK: impactedThreshold,
-      IMPACTED: 0
-    };
-    
-    // Save to localStorage
-    localStorage.setItem('capex_status_thresholds', JSON.stringify(newThresholds));
-    
-    // Update current thresholds
-    Object.assign(STATUS_THRESHOLDS, newThresholds);
-    
-    return true;
+export const getStoredThresholds = (): ThresholdSettings => {
+  try {
+    const stored = localStorage.getItem('statusThresholds');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return {
+        atRiskThreshold: Number(parsed.atRiskThreshold) || defaultSettings.atRiskThreshold,
+        impactedThreshold: Number(parsed.impactedThreshold) || defaultSettings.impactedThreshold
+      };
+    }
+  } catch (error) {
+    console.error('Error reading thresholds from storage:', error);
   }
-  return false;
+  return defaultSettings;
+};
+
+export const updateStatusThresholds = (impactedThreshold: number, atRiskThreshold: number): boolean => {
+  try {
+    const thresholds: ThresholdSettings = {
+      atRiskThreshold,
+      impactedThreshold
+    };
+    localStorage.setItem('statusThresholds', JSON.stringify(thresholds));
+    return true;
+  } catch (error) {
+    console.error('Error updating thresholds:', error);
+    return false;
+  }
 };
 
 // Helper Functions
@@ -308,14 +292,14 @@ export const calculateOverallCompletion = (project: Project): number => {
 
 export const determineProjectStatus = (
   actualCompletion: number,
-  targetCompletion: number
+  targetCompletion: number,
+  onTrackThreshold: number = 0.9,
+  atRiskThreshold: number = 0.8
 ): Project['projectStatus'] => {
-  if (targetCompletion === 0) return 'On Track';
-  
   const ratio = actualCompletion / targetCompletion;
   
-  if (ratio >= STATUS_THRESHOLDS.ON_TRACK) return 'On Track';
-  if (ratio >= STATUS_THRESHOLDS.AT_RISK) return 'At Risk';
+  if (ratio >= onTrackThreshold) return 'On Track';
+  if (ratio >= atRiskThreshold) return 'At Risk';
   return 'Impacted';
 };
 

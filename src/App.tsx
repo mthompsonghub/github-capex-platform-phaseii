@@ -13,19 +13,41 @@ import { KPIOverviewPage } from './pages/KPIOverviewPage';
 import { UserManagement } from './components/UserManagement';
 import { Session } from '@supabase/supabase-js';
 
+console.log('App starting...');
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { fetchInitialData } = useDataStore();
   const initialDataLoaded = useRef(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Safety timeout for loading state
+  useEffect(() => {
+    if (isLoading) {
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.error('Loading timeout reached - forcing app to render');
+        setIsLoading(false);
+        toast.error('Application took too long to load. Please refresh the page.');
+      }, 10000); // 10 second timeout
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
+  }, [isLoading]);
 
   useEffect(() => {
     const initializeApp = async () => {
       try {
+        console.log('Initializing app...');
         setIsLoading(true);
 
         // Check for version change
         if (hasVersionChanged()) {
+          console.log('Version change detected');
           toast.success('Application has been updated. Please log in again.', {
             duration: 3000,
             position: 'top-center'
@@ -42,21 +64,28 @@ function App() {
         }
 
         // Get initial session
+        console.log('Fetching initial session...');
         const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
           console.error('Error getting session:', sessionError);
+          toast.error('Failed to initialize session. Please refresh the page.');
           return;
         }
 
         if (initialSession && !initialDataLoaded.current) {
+          console.log('Session found, fetching initial data...');
           setSession(initialSession);
           await fetchInitialData();
           initialDataLoaded.current = true;
+        } else {
+          console.log('No session found or data already loaded');
         }
       } catch (error) {
         console.error('Error during initialization:', error);
+        toast.error('Failed to initialize application. Please refresh the page.');
       } finally {
+        console.log('Initialization complete');
         setIsLoading(false);
       }
     };
@@ -83,7 +112,12 @@ function App() {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription.unsubscribe();
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+    };
   }, [fetchInitialData]);
 
   if (isLoading) {
@@ -95,7 +129,7 @@ function App() {
   }
 
   return (
-    <Router>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <div className="min-h-screen bg-gray-50">
         <Toaster />
         {!session ? (

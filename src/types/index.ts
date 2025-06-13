@@ -5,9 +5,12 @@ export type Project = {
   priority: 'Critical' | 'High' | 'Medium' | 'Low';
   start_date: string;
   end_date: string;
-  created_at?: string;
-  updated_at?: string;
-  created_by?: string;
+  owner: string;
+  project_type: string;
+  phases: string[];
+  created_at: string | null;
+  updated_at: string | null;
+  created_by: string | null;
   resource_order?: string[];
 };
 
@@ -16,6 +19,8 @@ export type Resource = {
   name: string;
   title: string;
   department: string;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type Allocation = {
@@ -24,6 +29,8 @@ export type Allocation = {
   resource_id: string;
   project_quarter_number: number;
   percentage: number;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CalendarAllocation = {

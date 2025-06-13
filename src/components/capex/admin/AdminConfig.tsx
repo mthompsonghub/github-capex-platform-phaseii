@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -12,7 +12,10 @@ import {
   Slider,
   Stack
 } from '@mui/material';
-import { STATUS_THRESHOLDS, updateStatusThresholds } from '../data/capexData';
+import { defaultSettings, updateStatusThresholds, getStoredThresholds, ThresholdSettings } from '../data/capexData';
+import { CapExErrorBoundary } from '../../ErrorBoundary';
+import toast from 'react-hot-toast';
+import debounce from 'lodash/debounce';
 
 interface AdminConfigProps {
   open: boolean;
@@ -20,79 +23,182 @@ interface AdminConfigProps {
   onUpdate?: () => void;
 }
 
-export const AdminConfig: React.FC<AdminConfigProps> = ({ open, onClose, onUpdate }) => {
-  const [atRisk, setAtRisk] = useState<number>(STATUS_THRESHOLDS.AT_RISK);
-  const [impacted, setImpacted] = useState<number>(STATUS_THRESHOLDS.AT_RISK);
+interface ThresholdValidation {
+  isValid: boolean;
+  error?: string;
+}
+
+const validateThresholds = (impactedThreshold: number, atRiskThreshold: number): ThresholdValidation => {
+  // Validate range (0-100)
+  if (impactedThreshold < 0 || atRiskThreshold < 0 || impactedThreshold > 1 || atRiskThreshold > 1) {
+    return {
+      isValid: false,
+      error: 'Thresholds must be between 0% and 100%'
+    };
+  }
+
+  // Validate atRisk > impacted (since atRisk is the higher threshold)
+  if (atRiskThreshold <= impactedThreshold) {
+    return {
+      isValid: false,
+      error: 'At Risk threshold must be greater than Impacted threshold'
+    };
+  }
+
+  // Validate minimum difference (exactly 10%)
+  const minDifference = 0.1; // 10%
+  if (Math.abs(atRiskThreshold - impactedThreshold) < minDifference) {
+    return {
+      isValid: false,
+      error: `Thresholds must be exactly ${minDifference * 100}% apart`
+    };
+  }
+
+  return { isValid: true };
+};
+
+const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdate }) => {
+  const [thresholds, setThresholds] = useState<ThresholdSettings>(defaultSettings);
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
+  const [hasShownError, setHasShownError] = useState(false);
 
+  // Load thresholds from storage when dialog opens
   useEffect(() => {
-    // Reset values when dialog opens
     if (open) {
-      setAtRisk(STATUS_THRESHOLDS.AT_RISK);
-      setImpacted(STATUS_THRESHOLDS.AT_RISK);
-      setError('');
-      setIsLoading(false);
+      console.log('Dialog opened - loading thresholds');
+      try {
+        const storedThresholds = getStoredThresholds();
+        console.log('Loaded stored thresholds:', storedThresholds);
+        setThresholds(storedThresholds);
+        setError('');
+        setIsLoading(false);
+        setHasShownError(false);
+      } catch (err) {
+        console.error('Error loading thresholds:', err);
+        toast.error('Failed to load thresholds. Using defaults.');
+        setThresholds(defaultSettings);
+      }
     }
   }, [open]);
 
+  // Debounced error toast
+  const showErrorToast = useCallback(
+    debounce((message: string) => {
+      console.log('Showing error toast:', message);
+      toast.error(message);
+    }, 300),
+    []
+  );
+
   const handleSliderChange = (type: 'atRisk' | 'impacted', newValue: number) => {
     try {
+      console.log(`Slider change - ${type}:`, newValue);
       const value = Number(newValue) / 100;
+      
+      // Validate value is between 0-100
       if (isNaN(value) || value < 0 || value > 1) {
-        throw new Error('Invalid value');
+        throw new Error('Value must be between 0% and 100%');
       }
       
-      if (type === 'atRisk') {
-        if (value <= impacted) {
-          setError('At Risk threshold must be greater than Impacted threshold');
-        } else {
-          setError('');
-          setAtRisk(value);
+      const newThresholds = {
+        ...thresholds,
+        [type === 'atRisk' ? 'atRiskThreshold' : 'impactedThreshold']: value
+      };
+      
+      const validation = validateThresholds(
+        newThresholds.impactedThreshold,
+        newThresholds.atRiskThreshold
+      );
+      
+      if (!validation.isValid) {
+        setError(validation.error!);
+        if (!hasShownError) {
+          showErrorToast(validation.error!);
+          setHasShownError(true);
         }
-      } else {
-        if (value >= atRisk) {
-          setError('Impacted threshold must be less than At Risk threshold');
-        } else {
-          setError('');
-          setImpacted(value);
-        }
+        return;
       }
+
+      setError('');
+      setHasShownError(false);
+      setThresholds(newThresholds);
     } catch (err) {
-      setError('Invalid value entered');
+      const errorMessage = err instanceof Error ? err.message : 'Invalid value entered';
+      setError(errorMessage);
+      if (!hasShownError) {
+        showErrorToast(errorMessage);
+        setHasShownError(true);
+      }
     }
   };
 
   const handleSave = async () => {
+    console.log('Save clicked - current thresholds:', thresholds);
     try {
       setIsLoading(true);
       setError('');
 
       // Validate thresholds
-      if (impacted >= atRisk) {
-        throw new Error('Impacted threshold must be less than At Risk threshold');
-      }
-      if (atRisk >= 1) {
-        throw new Error('At Risk threshold must be less than 100%');
-      }
-      if (impacted <= 0) {
-        throw new Error('Impacted threshold must be greater than 0%');
+      const validation = validateThresholds(
+        thresholds.impactedThreshold,
+        thresholds.atRiskThreshold
+      );
+      
+      if (!validation.isValid) {
+        throw new Error(validation.error);
       }
 
       // Update thresholds
-      const success = updateStatusThresholds(impacted, atRisk);
+      console.log('Updating thresholds...');
+      const success = updateStatusThresholds(
+        thresholds.impactedThreshold,
+        thresholds.atRiskThreshold
+      );
+      
       if (!success) {
         throw new Error('Failed to update thresholds');
       }
 
-      onUpdate?.();
+      console.log('Thresholds updated successfully');
+      toast.success('Thresholds updated successfully');
+      
+      // Call onUpdate before closing
+      if (onUpdate) {
+        console.log('Calling onUpdate...');
+        onUpdate();
+      }
+
+      // Close the modal
+      console.log('Closing modal...');
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update thresholds');
+      console.error('Error during save:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update thresholds';
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
+      console.log('Save operation completed');
       setIsLoading(false);
     }
   };
+
+  // Safety timeout for loading state
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    if (isLoading) {
+      timeoutId = setTimeout(() => {
+        console.log('Loading timeout reached - resetting loading state');
+        setIsLoading(false);
+        toast.error('Operation timed out. Please try again.');
+      }, 5000); // 5 second timeout
+    }
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isLoading]);
 
   const formatValue = (value: number) => `${(value * 100).toFixed(0)}%`;
 
@@ -103,7 +209,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
       maxWidth="sm"
       fullWidth
       aria-labelledby="status-threshold-title"
-      disableEscapeKeyDown
+      disableEscapeKeyDown={isLoading}
       keepMounted={false}
       PaperProps={{
         sx: {
@@ -131,6 +237,7 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
         <Box sx={{ mb: 3 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Configure the thresholds that determine project status. Values represent the percentage of target completion.
+            Thresholds are ordered from lowest to highest: Impacted, At Risk, On Track.
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -149,17 +256,18 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
               alignItems: 'center',
               mb: 1
             }}>
-              At Risk Threshold
+              At Risk Threshold (Middle)
               <span style={{ color: '#6B7280' }}>
-                {formatValue(atRisk)}
+                {formatValue(thresholds.atRiskThreshold)}
               </span>
             </Box>
             <Slider
-              value={atRisk * 100}
+              value={thresholds.atRiskThreshold * 100}
               onChange={(_, value) => handleSliderChange('atRisk', value as number)}
               min={0}
               max={100}
               step={1}
+              disabled={isLoading}
               marks={[
                 { value: 0, label: '0%' },
                 { value: 50, label: '50%' },
@@ -187,17 +295,18 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
               alignItems: 'center',
               mb: 1
             }}>
-              Impacted Threshold
+              Impacted Threshold (Lowest)
               <span style={{ color: '#6B7280' }}>
-                {formatValue(impacted)}
+                {formatValue(thresholds.impactedThreshold)}
               </span>
             </Box>
             <Slider
-              value={impacted * 100}
+              value={thresholds.impactedThreshold * 100}
               onChange={(_, value) => handleSliderChange('impacted', value as number)}
               min={0}
               max={100}
               step={1}
+              disabled={isLoading}
               marks={[
                 { value: 0, label: '0%' },
                 { value: 50, label: '50%' },
@@ -218,33 +327,41 @@ export const AdminConfig: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
         </Stack>
       </DialogContent>
 
-      <DialogActions sx={{ 
-        borderTop: '1px solid #E5E7EB',
-        px: 3,
-        py: 2
-      }}>
+      <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #E5E7EB' }}>
         <Button 
           onClick={onClose}
           disabled={isLoading}
           sx={{ 
             color: '#6B7280',
-            '&:hover': { backgroundColor: '#F3F4F6' }
+            '&:hover': {
+              backgroundColor: '#F3F4F6'
+            }
           }}
         >
           Cancel
         </Button>
         <Button
           onClick={handleSave}
+          disabled={isLoading || !!error}
           variant="contained"
-          disabled={isLoading || Boolean(error)}
           sx={{ 
             backgroundColor: '#1e40af',
-            '&:hover': { backgroundColor: '#1e3a8a' }
+            '&:hover': {
+              backgroundColor: '#1e3a8a'
+            }
           }}
         >
           {isLoading ? 'Saving...' : 'Save Changes'}
         </Button>
       </DialogActions>
     </Dialog>
+  );
+};
+
+export const AdminConfig: React.FC<AdminConfigProps> = (props) => {
+  return (
+    <CapExErrorBoundary>
+      <AdminConfigContent {...props} />
+    </CapExErrorBoundary>
   );
 }; 
