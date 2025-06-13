@@ -28,16 +28,31 @@ interface ThresholdValidation {
   error?: string;
 }
 
-const validateThresholds = (impactedThreshold: number, atRiskThreshold: number): ThresholdValidation => {
+const validateThresholds = (
+  onTrackThreshold: number,
+  atRiskThreshold: number,
+  impactedThreshold: number
+): ThresholdValidation => {
   // Validate range (0-100)
-  if (impactedThreshold < 0 || atRiskThreshold < 0 || impactedThreshold > 1 || atRiskThreshold > 1) {
+  if (
+    onTrackThreshold < 0 || onTrackThreshold > 100 ||
+    atRiskThreshold < 0 || atRiskThreshold > 100 ||
+    impactedThreshold < 0 || impactedThreshold > 100
+  ) {
     return {
       isValid: false,
       error: 'Thresholds must be between 0% and 100%'
     };
   }
 
-  // Validate atRisk > impacted (since atRisk is the higher threshold)
+  // Validate thresholds are in correct order
+  if (onTrackThreshold <= atRiskThreshold) {
+    return {
+      isValid: false,
+      error: 'On Track threshold must be greater than At Risk threshold'
+    };
+  }
+
   if (atRiskThreshold <= impactedThreshold) {
     return {
       isValid: false,
@@ -45,12 +60,19 @@ const validateThresholds = (impactedThreshold: number, atRiskThreshold: number):
     };
   }
 
-  // Validate minimum difference (exactly 10%)
-  const minDifference = 0.1; // 10%
-  if (Math.abs(atRiskThreshold - impactedThreshold) < minDifference) {
+  // Validate minimum difference (at least 10%)
+  const minDifference = 10; // 10%
+  if ((onTrackThreshold - atRiskThreshold) < minDifference) {
     return {
       isValid: false,
-      error: `Thresholds must be exactly ${minDifference * 100}% apart`
+      error: 'On Track and At Risk thresholds must be at least 10% apart'
+    };
+  }
+
+  if ((atRiskThreshold - impactedThreshold) < minDifference) {
+    return {
+      isValid: false,
+      error: 'At Risk and Impacted thresholds must be at least 10% apart'
     };
   }
 
@@ -91,24 +113,25 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
     []
   );
 
-  const handleSliderChange = (type: 'atRisk' | 'impacted', newValue: number) => {
+  const handleSliderChange = (type: 'onTrack' | 'atRisk' | 'impacted', newValue: number) => {
     try {
       console.log(`Slider change - ${type}:`, newValue);
-      const value = Number(newValue) / 100;
       
       // Validate value is between 0-100
-      if (isNaN(value) || value < 0 || value > 1) {
+      if (isNaN(newValue) || newValue < 0 || newValue > 100) {
         throw new Error('Value must be between 0% and 100%');
       }
       
       const newThresholds = {
         ...thresholds,
-        [type === 'atRisk' ? 'atRiskThreshold' : 'impactedThreshold']: value
+        [type === 'onTrack' ? 'onTrackThreshold' : 
+         type === 'atRisk' ? 'atRiskThreshold' : 'impactedThreshold']: newValue
       };
       
       const validation = validateThresholds(
-        newThresholds.impactedThreshold,
-        newThresholds.atRiskThreshold
+        newThresholds.onTrackThreshold,
+        newThresholds.atRiskThreshold,
+        newThresholds.impactedThreshold
       );
       
       if (!validation.isValid) {
@@ -141,8 +164,9 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
 
       // Validate thresholds
       const validation = validateThresholds(
-        thresholds.impactedThreshold,
-        thresholds.atRiskThreshold
+        thresholds.onTrackThreshold,
+        thresholds.atRiskThreshold,
+        thresholds.impactedThreshold
       );
       
       if (!validation.isValid) {
@@ -152,8 +176,9 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
       // Update thresholds
       console.log('Updating thresholds...');
       const success = updateStatusThresholds(
-        thresholds.impactedThreshold,
-        thresholds.atRiskThreshold
+        thresholds.onTrackThreshold,
+        thresholds.atRiskThreshold,
+        thresholds.impactedThreshold
       );
       
       if (!success) {
@@ -200,7 +225,106 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
     };
   }, [isLoading]);
 
-  const formatValue = (value: number) => `${(value * 100).toFixed(0)}%`;
+  const formatValue = (value: number) => `${value.toFixed(0)}%`;
+
+  const ValueBadge = ({ value, color }: { value: number; color: string }) => (
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        px: 1.5,
+        py: 0.5,
+        borderRadius: 1,
+        backgroundColor: `${color}15`,
+        color: color,
+        fontWeight: 500,
+        fontSize: '0.875rem',
+        minWidth: '60px',
+        justifyContent: 'center'
+      }}
+    >
+      {formatValue(value)}
+    </Box>
+  );
+
+  const ThresholdPreview = () => {
+    const marks = [
+      { value: thresholds.impactedThreshold, label: 'Impacted' },
+      { value: thresholds.atRiskThreshold, label: 'At Risk' },
+      { value: thresholds.onTrackThreshold, label: 'On Track' }
+    ].sort((a, b) => a.value - b.value);
+
+    return (
+      <Box sx={{ mt: 2, mb: 3 }}>
+        <Typography variant="body2" color="text.secondary" gutterBottom>
+          Visual Preview
+        </Typography>
+        <Box sx={{ 
+          height: 40, 
+          position: 'relative',
+          bgcolor: '#F3F4F6',
+          borderRadius: 1,
+          overflow: 'hidden'
+        }}>
+          {marks.map((mark, index) => (
+            <Box
+              key={mark.label}
+              sx={{
+                position: 'absolute',
+                left: `${mark.value}%`,
+                top: 0,
+                bottom: 0,
+                width: '2px',
+                bgcolor: index === 0 ? '#EF4444' : index === 1 ? '#F59E0B' : '#10B981',
+                transform: 'translateX(-50%)',
+                '&::after': {
+                  content: '""',
+                  position: 'absolute',
+                  left: '50%',
+                  top: 0,
+                  width: 0,
+                  height: 0,
+                  borderLeft: '4px solid transparent',
+                  borderRight: '4px solid transparent',
+                  borderTop: '4px solid',
+                  borderTopColor: index === 0 ? '#EF4444' : index === 1 ? '#F59E0B' : '#10B981',
+                  transform: 'translateX(-50%)'
+                }
+              }}
+            />
+          ))}
+          <Box sx={{ 
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 1
+          }}>
+            {marks.map((mark) => (
+              <Typography
+                key={mark.label}
+                variant="caption"
+                sx={{
+                  color: mark.label === 'Impacted' ? '#EF4444' :
+                         mark.label === 'At Risk' ? '#F59E0B' : '#10B981',
+                  fontWeight: 500,
+                  transform: 'translateX(-50%)',
+                  position: 'absolute',
+                  left: `${mark.value}%`
+                }}
+              >
+                {mark.label}
+              </Typography>
+            ))}
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
 
   return (
     <Dialog 
@@ -208,129 +332,166 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
       onClose={onClose}
       maxWidth="sm"
       fullWidth
-      aria-labelledby="status-threshold-title"
-      disableEscapeKeyDown={isLoading}
-      keepMounted={false}
       PaperProps={{
         sx: {
-          borderRadius: '12px',
-          boxShadow: '0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.06)'
+          borderRadius: 2,
+          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
         }
       }}
     >
-      <DialogTitle 
-        id="status-threshold-title"
-        sx={{ 
-          borderBottom: '1px solid #E5E7EB',
-          px: 3,
-          py: 2,
-          backgroundColor: '#F9FAFB',
-          color: '#111827',
+      <DialogTitle sx={{ 
+        borderBottom: '1px solid #E5E7EB',
+        pb: 2,
+        '& .MuiTypography-root': {
           fontSize: '1.25rem',
-          fontWeight: 600
-        }}
-      >
-        Status Threshold Configuration
+          fontWeight: 600,
+          color: '#111827'
+        }
+      }}>
+        Admin Configuration
       </DialogTitle>
       
-      <DialogContent sx={{ p: 3 }}>
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Configure the thresholds that determine project status. Values represent the percentage of target completion.
-            Thresholds are ordered from lowest to highest: Impacted, At Risk, On Track.
-          </Typography>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-        </Box>
-
-        <Stack spacing={3}>
+      <DialogContent sx={{ pt: 3 }}>
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ mb: 2 }}
+            onClose={() => setError('')}
+          >
+            {error}
+          </Alert>
+        )}
+        
+        <Stack spacing={4}>
           <Box>
-            <Box sx={{ 
-              color: '#374151',
-              fontWeight: 500,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 1
-            }}>
-              At Risk Threshold (Middle)
-              <span style={{ color: '#6B7280' }}>
-                {formatValue(thresholds.atRiskThreshold)}
-              </span>
-            </Box>
-            <Slider
-              value={thresholds.atRiskThreshold * 100}
-              onChange={(_, value) => handleSliderChange('atRisk', value as number)}
-              min={0}
-              max={100}
-              step={1}
-              disabled={isLoading}
-              marks={[
-                { value: 0, label: '0%' },
-                { value: 50, label: '50%' },
-                { value: 100, label: '100%' }
-              ]}
-              sx={{
-                color: '#F59E0B',
-                '& .MuiSlider-thumb': {
-                  backgroundColor: '#fff',
-                  border: '2px solid currentColor',
-                  '&:hover, &.Mui-focusVisible': {
-                    boxShadow: '0 0 0 8px rgba(245, 158, 11, 0.16)'
-                  }
-                }
-              }}
-            />
-          </Box>
+            <Typography variant="subtitle1" sx={{ mb: 1, color: '#374151' }}>
+              Status Thresholds
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Set the completion percentage thresholds that determine a project's status. 
+              Projects must be at least 10% apart to ensure clear status differentiation.
+              Higher completion percentages indicate better project health.
+            </Typography>
 
-          <Box>
-            <Box sx={{ 
-              color: '#374151',
-              fontWeight: 500,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 1
-            }}>
-              Impacted Threshold (Lowest)
-              <span style={{ color: '#6B7280' }}>
-                {formatValue(thresholds.impactedThreshold)}
-              </span>
-            </Box>
-            <Slider
-              value={thresholds.impactedThreshold * 100}
-              onChange={(_, value) => handleSliderChange('impacted', value as number)}
-              min={0}
-              max={100}
-              step={1}
-              disabled={isLoading}
-              marks={[
-                { value: 0, label: '0%' },
-                { value: 50, label: '50%' },
-                { value: 100, label: '100%' }
-              ]}
-              sx={{
-                color: '#EF4444',
-                '& .MuiSlider-thumb': {
-                  backgroundColor: '#fff',
-                  border: '2px solid currentColor',
-                  '&:hover, &.Mui-focusVisible': {
-                    boxShadow: '0 0 0 8px rgba(239, 68, 68, 0.16)'
-                  }
-                }
-              }}
-            />
+            <ThresholdPreview />
+            
+            <Stack spacing={3}>
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    On Track Threshold (Highest)
+                  </Typography>
+                  <ValueBadge value={thresholds.onTrackThreshold} color="#10B981" />
+                </Box>
+                <Slider
+                  value={thresholds.onTrackThreshold}
+                  onChange={(_, value) => handleSliderChange('onTrack', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                  min={0}
+                  max={100}
+                  step={1}
+                  marks={Array.from({ length: 11 }, (_, i) => ({ value: i * 10, label: `${i * 10}%` }))}
+                  sx={{
+                    color: '#10B981',
+                    '& .MuiSlider-thumb': {
+                      '&:hover, &.Mui-focusVisible': {
+                        boxShadow: '0 0 0 8px rgba(16, 185, 129, 0.16)'
+                      }
+                    },
+                    '& .MuiSlider-mark': {
+                      backgroundColor: '#bfdbfe',
+                      height: '8px',
+                      width: '1px',
+                      '&.MuiSlider-markActive': {
+                        backgroundColor: '#fff'
+                      }
+                    }
+                  }}
+                />
+              </Box>
+
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    At Risk Threshold (Medium)
+                  </Typography>
+                  <ValueBadge value={thresholds.atRiskThreshold} color="#F59E0B" />
+                </Box>
+                <Slider
+                  value={thresholds.atRiskThreshold}
+                  onChange={(_, value) => handleSliderChange('atRisk', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                  min={0}
+                  max={100}
+                  step={1}
+                  marks={Array.from({ length: 11 }, (_, i) => ({ value: i * 10, label: `${i * 10}%` }))}
+                  sx={{
+                    color: '#F59E0B',
+                    '& .MuiSlider-thumb': {
+                      '&:hover, &.Mui-focusVisible': {
+                        boxShadow: '0 0 0 8px rgba(245, 158, 11, 0.16)'
+                      }
+                    },
+                    '& .MuiSlider-mark': {
+                      backgroundColor: '#bfdbfe',
+                      height: '8px',
+                      width: '1px',
+                      '&.MuiSlider-markActive': {
+                        backgroundColor: '#fff'
+                      }
+                    }
+                  }}
+                />
+              </Box>
+
+              <Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Impacted Threshold (Lowest)
+                  </Typography>
+                  <ValueBadge value={thresholds.impactedThreshold} color="#EF4444" />
+                </Box>
+                <Slider
+                  value={thresholds.impactedThreshold}
+                  onChange={(_, value) => handleSliderChange('impacted', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                  min={0}
+                  max={100}
+                  step={1}
+                  marks={Array.from({ length: 11 }, (_, i) => ({ value: i * 10, label: `${i * 10}%` }))}
+                  sx={{
+                    color: '#EF4444',
+                    '& .MuiSlider-thumb': {
+                      '&:hover, &.Mui-focusVisible': {
+                        boxShadow: '0 0 0 8px rgba(239, 68, 68, 0.16)'
+                      }
+                    },
+                    '& .MuiSlider-mark': {
+                      backgroundColor: '#bfdbfe',
+                      height: '8px',
+                      width: '1px',
+                      '&.MuiSlider-markActive': {
+                        backgroundColor: '#fff'
+                      }
+                    }
+                  }}
+                />
+              </Box>
+            </Stack>
           </Box>
         </Stack>
       </DialogContent>
-
-      <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #E5E7EB' }}>
+      
+      <DialogActions sx={{ 
+        borderTop: '1px solid #E5E7EB',
+        px: 3,
+        py: 2
+      }}>
         <Button 
           onClick={onClose}
-          disabled={isLoading}
           sx={{ 
             color: '#6B7280',
             '&:hover': {
@@ -342,8 +503,8 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
         </Button>
         <Button
           onClick={handleSave}
-          disabled={isLoading || !!error}
           variant="contained"
+          disabled={isLoading || !!error}
           sx={{ 
             backgroundColor: '#1e40af',
             '&:hover': {
@@ -358,10 +519,8 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
   );
 };
 
-export const AdminConfig: React.FC<AdminConfigProps> = (props) => {
-  return (
-    <CapExErrorBoundary>
-      <AdminConfigContent {...props} />
-    </CapExErrorBoundary>
-  );
-}; 
+export const AdminConfig: React.FC<AdminConfigProps> = (props) => (
+  <CapExErrorBoundary>
+    <AdminConfigContent {...props} />
+  </CapExErrorBoundary>
+); 

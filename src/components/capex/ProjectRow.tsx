@@ -9,14 +9,15 @@ import {
 } from '@mui/material';
 import { 
   Project,
-  calculateOverallCompletion
-} from '../capex/data/capexData';
+  calculateOverallCompletionForBoth
+} from './data/capexData';
 import { CapExRecord } from '../../types/capex';
+import { useCapExStore } from './stores/capexStore';
+import toast from 'react-hot-toast';
 
 interface ProjectRowProps {
   project: Project | CapExRecord;
-  onEdit: (project: Project | CapExRecord) => void;
-  showFinancials: boolean;
+  showFinancials?: boolean;
 }
 
 const getStatusColor = (status: string | undefined): string => {
@@ -78,101 +79,97 @@ const ProgressBar: React.FC<{ value: number; label?: string }> = ({ value, label
   </Box>
 );
 
-export const ProjectRow: React.FC<ProjectRowProps> = ({ project, onEdit, showFinancials }) => {
-  // Calculate completion based on project type
-  const completion = 'actual_project_completion' in project 
-    ? project.actual_project_completion 
-    : calculateOverallCompletion(project as Project);
+export const ProjectRow: React.FC<ProjectRowProps> = ({ project, showFinancials = false }) => {
+  // Type guard for Project
+  const isProject = (p: Project | CapExRecord): p is Project => {
+    return 'phases' in p;
+  };
 
-  // Ensure completion is a valid number
-  const displayCompletion = isNaN(completion) ? 0 : Math.round(completion);
+  console.log('ProjectRow received project:', project);
+  if (isProject(project)) {
+    console.log('Project phases:', project.phases);
+    console.log('Feasibility phase:', project.phases.feasibility);
+  }
 
-  const projectName = 'projectName' in project ? project.projectName : project.project_name;
-  const projectOwner = 'projectOwner' in project ? project.projectOwner : project.project_owner;
-  const startDate = 'startDate' in project ? project.startDate : new Date(project.start_date);
-  const endDate = 'endDate' in project ? project.endDate : new Date(project.end_date);
-  const totalBudget = 'totalBudget' in project ? project.totalBudget : project.total_budget;
-  const totalActual = 'totalActual' in project ? project.totalActual : project.total_actual;
-  const projectStatus = 'projectStatus' in project ? project.projectStatus : project.project_status;
+  if (!isProject(project)) {
+    console.error('Project missing phases:', project);
+    return <div>Error: Project data incomplete</div>;
+  }
+
+  const { openProjectModal } = useCapExStore();
+
+  const handleClick = () => {
+    console.log('Opening project modal for:', project);
+    try {
+      openProjectModal(project);
+    } catch (error) {
+      console.error('Error opening project modal:', error);
+      toast.error('Failed to open project details');
+    }
+  };
+
+  const overallCompletion = calculateOverallCompletionForBoth(project);
+
+  const projectName = project.projectName;
+  const projectOwner = project.projectOwner;
+  const projectStatus = project.projectStatus;
+  const budget = project.totalBudget;
+  const actual = project.totalActual;
 
   return (
     <Card 
-      elevation={0}
       sx={{ 
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: '8px',
+        mb: 2, 
+        cursor: 'pointer',
         '&:hover': {
-          borderColor: 'primary.main',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          boxShadow: 3
         }
       }}
+      onClick={handleClick}
+      data-testid="project-row"
     >
-      <CardContent sx={{ p: 3 }}>
+      <CardContent>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={showFinancials ? 6 : 8}>
-            <Box>
-              <Typography variant="h6" sx={{ color: '#111827', mb: 0.5 }}>
-                {projectName}
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#6B7280' }}>
-                {projectOwner}
-              </Typography>
-              <Typography variant="caption" sx={{ color: '#6B7280', display: 'block', mt: 1 }}>
-                {new Date(startDate).toLocaleDateString()} - {new Date(endDate).toLocaleDateString()}
-              </Typography>
-            </Box>
-          </Grid>
-
-          <Grid item xs={showFinancials ? 3 : 4}>
-            <Box>
-              <Typography variant="body2" sx={{ color: '#374151', mb: 1 }}>
-                Target Progress
-              </Typography>
-              <Box sx={{ mb: 1 }}>
-                <ProgressBar 
-                  value={displayCompletion} 
-                  label={`${displayCompletion}%`}
-                />
-              </Box>
+          <Grid item xs={12} md={4}>
+            <Typography variant="h6" component="div">
+              {projectName}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {projectOwner}
+            </Typography>
+            {showFinancials && (
               <Box sx={{ mt: 1 }}>
-                <Chip
-                  label={projectStatus}
-                  size="small"
-                  sx={{
-                    height: '24px',
-                    backgroundColor: `${getStatusColor(projectStatus)}15`,
-                    color: getStatusColor(projectStatus),
-                    fontWeight: 500,
-                    fontSize: '0.75rem',
-                    borderRadius: '12px'
-                  }}
-                />
+                <Typography variant="body2" color="text.secondary">
+                  Budget: ${budget?.toLocaleString() || 'N/A'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Actual: ${actual?.toLocaleString() || 'N/A'}
+                </Typography>
               </Box>
+            )}
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Overall Progress:
+              </Typography>
+              <Typography variant="body2">
+                {overallCompletion}%
+              </Typography>
             </Box>
           </Grid>
-
-          {showFinancials && (
-            <Grid item xs={3}>
-              <Typography variant="body2" sx={{ 
-                color: '#374151',
-                mb: 0.5,
-                display: 'flex',
-                justifyContent: 'space-between'
-              }}>
-                <span>Budget:</span>
-                <span style={{ fontWeight: 500 }}>${(totalBudget / 1000).toLocaleString()}K</span>
-              </Typography>
-              <Typography variant="body2" sx={{ 
-                color: '#374151',
-                display: 'flex',
-                justifyContent: 'space-between'
-              }}>
-                <span>Actual:</span>
-                <span style={{ fontWeight: 500 }}>${(totalActual / 1000).toLocaleString()}K</span>
-              </Typography>
-            </Grid>
-          )}
+          <Grid item xs={12} md={4}>
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Chip 
+                label={projectStatus} 
+                color={
+                  projectStatus === 'On Track' ? 'success' :
+                  projectStatus === 'At Risk' ? 'warning' :
+                  'error'
+                }
+              />
+            </Box>
+          </Grid>
         </Grid>
       </CardContent>
     </Card>

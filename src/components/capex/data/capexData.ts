@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CapExRecord } from '../../../types/capex';
 
 // TypeScript Interfaces
 export interface SubItem {
@@ -223,13 +224,15 @@ export const PHASE_SUB_ITEMS = {
 
 // Status Thresholds
 export interface ThresholdSettings {
+  onTrackThreshold: number;
   atRiskThreshold: number;
   impactedThreshold: number;
 }
 
 export const defaultSettings: ThresholdSettings = {
-  atRiskThreshold: 0.8,
-  impactedThreshold: 0.7
+  onTrackThreshold: 100,
+  atRiskThreshold: 85,
+  impactedThreshold: 70
 };
 
 export const getStoredThresholds = (): ThresholdSettings => {
@@ -238,6 +241,7 @@ export const getStoredThresholds = (): ThresholdSettings => {
     if (stored) {
       const parsed = JSON.parse(stored);
       return {
+        onTrackThreshold: Number(parsed.onTrackThreshold) || defaultSettings.onTrackThreshold,
         atRiskThreshold: Number(parsed.atRiskThreshold) || defaultSettings.atRiskThreshold,
         impactedThreshold: Number(parsed.impactedThreshold) || defaultSettings.impactedThreshold
       };
@@ -248,9 +252,14 @@ export const getStoredThresholds = (): ThresholdSettings => {
   return defaultSettings;
 };
 
-export const updateStatusThresholds = (impactedThreshold: number, atRiskThreshold: number): boolean => {
+export const updateStatusThresholds = (
+  onTrackThreshold: number,
+  atRiskThreshold: number,
+  impactedThreshold: number
+): boolean => {
   try {
     const thresholds: ThresholdSettings = {
+      onTrackThreshold,
       atRiskThreshold,
       impactedThreshold
     };
@@ -275,26 +284,27 @@ export const calculateOverallCompletion = (project: Project): number => {
   const { phases, projectType } = project;
   const { phaseWeights } = projectType;
 
-  let totalWeight = 0;
-  let weightedCompletion = 0;
+  const feasibilityCompletion = phases.feasibility.completion * (phaseWeights.feasibility / 100);
+  const planningCompletion = phases.planning.completion * (phaseWeights.planning / 100);
+  const executionCompletion = phases.execution.completion * (phaseWeights.execution / 100);
+  const closeCompletion = phases.close.completion * (phaseWeights.close / 100);
 
-  // Calculate weighted sum of phase completions
-  Object.entries(phases).forEach(([phaseName, phase]) => {
-    const weight = phaseWeights[phaseName as keyof typeof phaseWeights];
-    if (weight > 0) {
-      totalWeight += weight;
-      weightedCompletion += (phase.completion * weight);
-    }
-  });
+  return Math.round(feasibilityCompletion + planningCompletion + executionCompletion + closeCompletion);
+};
 
-  return totalWeight > 0 ? weightedCompletion / totalWeight : 0;
+export const calculateOverallCompletionForBoth = (project: Project | CapExRecord): number => {
+  if ('phases' in project) {
+    return calculateOverallCompletion(project);
+  } else {
+    return project.actual_project_completion;
+  }
 };
 
 export const determineProjectStatus = (
   actualCompletion: number,
   targetCompletion: number,
-  onTrackThreshold: number = 0.9,
-  atRiskThreshold: number = 0.8
+  onTrackThreshold: number = defaultSettings.onTrackThreshold,
+  atRiskThreshold: number = defaultSettings.atRiskThreshold
 ): Project['projectStatus'] => {
   const ratio = actualCompletion / targetCompletion;
   

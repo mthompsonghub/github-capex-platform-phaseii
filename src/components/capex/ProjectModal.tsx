@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { X, ChevronDown, ChevronRight } from 'lucide-react';
 import { CapExRecord, ProjectSection, PhaseField, YearlyFinancials } from '../../types/capex';
+import { Project } from './data/capexData';
+import { convertCapExRecordToProject, convertProjectToCapExRecord } from '../../utils/projectUtils';
 
 interface ProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (record: CapExRecord) => void;
+  onSave: (project: Project) => void;
   mode: 'add' | 'edit';
   section?: ProjectSection;
-  project?: CapExRecord;
+  project?: Project;
 }
 
 const MODAL_TABS = [

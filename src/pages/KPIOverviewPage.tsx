@@ -1,61 +1,58 @@
-import React, { useState } from 'react';
-import { Button } from '@mui/material';
-import { CapExSummaryCards } from '../components/capex/CapExSummaryCards';
+import React, { useEffect, useState } from 'react';
+import { Box, Typography, Button, Paper, Grid, CircularProgress, Alert } from '@mui/material';
+import { useCapExStore } from '../stores/capexStore';
+import { ProjectModalV2 } from '../components/capex/ProjectModalV2';
 import { ProjectRow } from '../components/capex/ProjectRow';
-import { ProjectEditModal } from '../components/capex/ProjectEditModal';
-import { useCapExData } from '../hooks/useCapExData';
-import { BarChart2, Eye, EyeOff, Settings, AlertTriangle } from 'lucide-react';
-import { CapExRecord } from '../types/capex';
+import { useCapExActions } from '../stores/capexStore';
+import { supabase } from '../lib/supabase';
+import { User } from '@supabase/supabase-js';
+import { BarChart2, Eye, EyeOff, Settings, AlertTriangle, Plus } from 'lucide-react';
+import { CapExRecord, AdminSettings } from '../types/capex';
 import { Project } from '../components/capex/data/capexData';
 import { AdminConfig } from '../components/capex/admin/AdminConfig';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../utils/projectUtils';
 import { CapExErrorBoundary } from '../components/ErrorBoundary';
 
 const KPIOverviewPageContent: React.FC = () => {
-  const { data: projects, isLoading, error, updateProject } = useCapExData();
-  const [showFinancials, setShowFinancials] = useState(true);
-  const [showAdminConfig, setShowAdminConfig] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | CapExRecord | null>(null);
+  const { projects, adminSettings, modals, loading, errors, actions } = useCapExStore();
+  console.log('KPIOverviewPage - Projects:', projects);
+  console.log('KPIOverviewPage - Loading:', loading);
+  console.log('KPIOverviewPage - Errors:', errors);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600" role="status" aria-label="Loading"></div>
-      </div>
-    );
-  }
+  const { loadProjects, updateProject, updateAdminSettings } = useCapExActions();
+  const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  if (error) {
-    return (
-      <div className="p-4 text-red-600">
-        Error loading data: {error.message}
-      </div>
-    );
-  }
+  useEffect(() => {
+    console.log('KPIOverviewPage - Calling loadProjects...');
+    loadProjects();
+  }, []);
 
-  const handleEditProject = (project: Project | CapExRecord) => {
-    setSelectedProject(project);
-    setIsModalOpen(true);
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      // Fetch role from user_roles table
+      if (user) {
+        const { data, error } = await supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', user.id)
+          .single();
+        if (!error && data) {
+          setIsAdmin(data.role === 'admin');
+        }
+      }
+    };
+    getUser();
+  }, []);
+
+  const handleProjectUpdate = (projectId: string, updates: Partial<Project>) => {
+    updateProject(projectId, updates);
   };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedProject(null);
-  };
-
-  const handleSaveProject = (updatedProject: Project | CapExRecord) => {
-    handleProjectUpdate(updatedProject);
-    setIsModalOpen(false);
-    setSelectedProject(null);
-  };
-
-  const handleProjectUpdate = (updatedProject: Project | CapExRecord) => {
-    if ('project_name' in updatedProject) {
-      updateProject(convertCapExRecordToProject(updatedProject));
-    } else {
-      updateProject(updatedProject);
-    }
+  const handleToggleFinancials = () => {
+    updateAdminSettings({ showFinancials: !adminSettings.showFinancials });
   };
 
   const handleAdminConfigUpdate = () => {
@@ -71,45 +68,64 @@ const KPIOverviewPageContent: React.FC = () => {
     throw new Error('Test Component Error');
   };
 
-  const capExRecords: CapExRecord[] = projects.map(convertProjectToCapExRecord);
+  if (loading.projects) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (errors.projects) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">{String(errors.projects)}</Alert>
+      </Box>
+    );
+  }
+
+  if (!loading.projects && projects.length === 0) {
+    return (
+      <Typography variant="h6" sx={{ textAlign: 'center', color: 'text.secondary', my: 4 }}>
+        No projects found
+      </Typography>
+    );
+  }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">CapEx Scorecard</h1>
-        <div className="flex gap-4">
-          <Button
-            onClick={() => setShowFinancials(!showFinancials)}
-            variant="outlined"
-            color="primary"
-            startIcon={showFinancials ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            sx={{ 
-              borderColor: '#1e40af',
-              color: '#1e40af',
-              '&:hover': {
-                borderColor: '#1e40af',
-                backgroundColor: '#EFF6FF'
-              }
-            }}
-          >
-            {showFinancials ? 'Hide Financials' : 'Show Financials'}
-          </Button>
-          <Button
-            onClick={() => setShowAdminConfig(true)}
-            variant="outlined"
-            color="primary"
-            startIcon={<Settings className="w-4 h-4" />}
-            sx={{ 
-              borderColor: '#1e40af',
-              color: '#1e40af',
-              '&:hover': {
-                borderColor: '#1e40af',
-                backgroundColor: '#EFF6FF'
-              }
-            }}
-          >
-            Admin Settings
-          </Button>
+    <Box sx={{ p: 3 }}>
+      {loading.projects && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+          <CircularProgress />
+        </Box>
+      )}
+      {errors.projects && (
+        <Alert severity="error" sx={{ mb: 2 }}>{String(errors.projects)}</Alert>
+      )}
+      {!loading.projects && projects.length === 0 && (
+        <Typography variant="h6" sx={{ textAlign: 'center', color: 'text.secondary', my: 4 }}>
+          No projects found
+        </Typography>
+      )}
+
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
+          CapEx Projects Overview
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 4 }}>
+          {isAdmin && (
+            <Button
+              variant="outlined"
+              onClick={handleToggleFinancials}
+              sx={{ 
+                borderColor: 'gray.300',
+                color: 'gray.700',
+                '&:hover': { borderColor: 'gray.400' }
+              }}
+            >
+              {adminSettings.showFinancials ? 'Hide Financials' : 'Show Financials'}
+            </Button>
+          )}
           <Button
             onClick={handleAnalyticsClick}
             variant="contained"
@@ -141,37 +157,30 @@ const KPIOverviewPageContent: React.FC = () => {
               Test Error
             </Button>
           )}
-        </div>
-      </div>
+        </Box>
+      </Box>
 
-      <CapExSummaryCards data={capExRecords} />
-
-      <div className="space-y-4">
-        {capExRecords.map((project) => (
-          <ProjectRow
-            key={project.id}
-            project={project}
-            onEdit={() => handleEditProject(project)}
-            showFinancials={showFinancials}
-          />
-        ))}
-      </div>
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2}>
+          {projects.map((project) => (
+            <Grid item xs={12} key={project.id}>
+              <ProjectRow
+                project={project}
+                showFinancials={adminSettings.showFinancials}
+              />
+            </Grid>
+          ))}
+        </Grid>
+      </Paper>
 
       <AdminConfig 
-        open={showAdminConfig}
-        onClose={() => setShowAdminConfig(false)}
+        open={modals.adminConfig.isOpen}
+        onClose={() => {}}
         onUpdate={handleAdminConfigUpdate}
       />
 
-      {selectedProject && (
-        <ProjectEditModal
-          isOpen={isModalOpen}
-          onClose={handleCloseModal}
-          project={selectedProject}
-          onSave={handleSaveProject}
-        />
-      )}
-    </div>
+      <ProjectModalV2 />
+    </Box>
   );
 };
 

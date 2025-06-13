@@ -2,13 +2,20 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { AdminSettings, ModalState } from '../types/capex';
-import { Project } from '../types';
+import { Project } from '../components/capex/data/capexData';
 import { supabase } from '../lib/supabase';
 
 interface CapExState {
   // Data
   projects: Project[];
   adminSettings: AdminSettings;
+  
+  // Permissions
+  permissions: {
+    canEditBudgets: boolean;
+    canEditDates: boolean;
+    isAdmin: boolean;
+  };
   
   // UI State
   modals: {
@@ -46,18 +53,26 @@ interface CapExState {
     
     // Error Actions
     clearError: (type: 'projects' | 'adminSettings') => void;
+
+    // Initialize permissions based on user role
+    initializePermissions: () => Promise<void>;
   };
 }
 
 // Separate API layer
 const capexAPI = {
-  async fetchProjects(): Promise<Project[]> {
+  async fetchProjects(): Promise<any[]> {
+    console.log('Store - loadProjects called');
     const { data, error } = await supabase
       .from('capex_projects')
       .select('*')
       .order('created_at', { ascending: false });
-      
-    if (error) throw error;
+    console.log('Raw data from Supabase:', JSON.stringify(data, null, 2));
+    if (error) {
+      console.error('Store - Supabase query error:', error);
+      throw error;
+    }
+    console.log('Store - fetched data:', data);
     return data;
   },
   
@@ -87,6 +102,50 @@ const capexAPI = {
       .eq('id', 1);
       
     if (error) throw error;
+  },
+
+  async fetchUserRole(): Promise<{ role: string }> {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    
+    const { data, error: roleError } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user?.id)
+      .single();
+      
+    if (roleError) throw roleError;
+    return data;
+  }
+};
+
+// Helper function to initialize permissions based on role
+const initializePermissions = (role: string) => {
+  switch (role.toLowerCase()) {
+    case 'admin':
+      return {
+        canEditBudgets: true,
+        canEditDates: true,
+        isAdmin: true
+      };
+    case 'manager':
+      return {
+        canEditBudgets: true,
+        canEditDates: true,
+        isAdmin: false
+      };
+    case 'viewer':
+      return {
+        canEditBudgets: false,
+        canEditDates: false,
+        isAdmin: false
+      };
+    default:
+      return {
+        canEditBudgets: false,
+        canEditDates: false,
+        isAdmin: false
+      };
   }
 };
 
@@ -100,6 +159,12 @@ export const useCapExStore = create<CapExState>()(
           onTrackThreshold: 90,
           atRiskThreshold: 80,
           showFinancials: true
+        },
+        
+        permissions: {
+          canEditBudgets: false,
+          canEditDates: false,
+          isAdmin: false
         },
         
         modals: {
@@ -120,6 +185,7 @@ export const useCapExStore = create<CapExState>()(
         actions: {
           // Project Actions with Error Handling
           loadProjects: async () => {
+            console.log('Store - loadProjects action started');
             set((state) => {
               state.loading.projects = true;
               state.errors.projects = null;
@@ -127,16 +193,65 @@ export const useCapExStore = create<CapExState>()(
             
             try {
               const projects = await capexAPI.fetchProjects();
+              console.log('Store - Projects loaded successfully:', projects);
+              // Transform to match Project type
+              const transformedData = (projects || []).map(item => ({
+                id: item.id,
+                projectName: item.project_name || 'Unnamed Project',
+                projectType: item.project_type || 'projects',
+                projectOwner: item.project_owner || 'Unknown',
+                projectStatus: item.project_status || 'on_track',
+                startDate: item.start_date || '',
+                endDate: item.end_date || '',
+                totalBudget: item.total_budget || 0,
+                totalActual: item.total_actual || 0,
+                phases: {
+                  feasibility: {
+                    id: 'feasibility',
+                    name: 'Feasibility',
+                    weight: 15,
+                    completion: 0,
+                    subItems: []
+                  },
+                  planning: {
+                    id: 'planning',
+                    name: 'Planning',
+                    weight: 35,
+                    completion: 0,
+                    subItems: []
+                  },
+                  execution: {
+                    id: 'execution',
+                    name: 'Execution',
+                    weight: 45,
+                    completion: 0,
+                    subItems: []
+                  },
+                  close: {
+                    id: 'close',
+                    name: 'Close',
+                    weight: 5,
+                    completion: 0,
+                    subItems: []
+                  }
+                },
+                comments: item.description || '',
+                lastUpdated: item.updated_at || new Date().toISOString(),
+                yearlyBudget: item.total_budget || 0,
+                upcomingMilestone: '',
+                sesAssetNumber: ''
+              }));
+              console.log('Transformed data:', JSON.stringify(transformedData, null, 2));
               set((state) => {
-                state.projects = projects;
+                state.projects = transformedData;
                 state.loading.projects = false;
               });
             } catch (error) {
+              console.error('Store - Failed to load projects:', error);
               set((state) => {
                 state.errors.projects = error as Error;
                 state.loading.projects = false;
               });
-              console.error('Failed to load projects:', error);
             }
           },
           
@@ -200,35 +315,65 @@ export const useCapExStore = create<CapExState>()(
           // Modal Management
           openProjectModal: (project) => {
             set((state) => {
-              state.modals.editProject = { isOpen: true, data: project };
+              state.modals.editProject = {
+                isOpen: true,
+                data: project
+              };
             });
           },
           
           closeProjectModal: () => {
             set((state) => {
-              state.modals.editProject = { isOpen: false, data: null };
+              state.modals.editProject = {
+                isOpen: false,
+                data: null
+              };
             });
           },
           
           openAdminModal: () => {
             set((state) => {
-              state.modals.adminConfig = { 
-                isOpen: true, 
-                data: get().adminSettings 
+              state.modals.adminConfig = {
+                isOpen: true,
+                data: state.adminSettings
               };
             });
           },
           
           closeAdminModal: () => {
             set((state) => {
-              state.modals.adminConfig = { isOpen: false, data: null };
+              state.modals.adminConfig = {
+                isOpen: false,
+                data: null
+              };
             });
           },
           
+          // Error Management
           clearError: (type) => {
             set((state) => {
               state.errors[type] = null;
             });
+          },
+
+          // Initialize permissions based on user role
+          initializePermissions: async () => {
+            try {
+              const { role } = await capexAPI.fetchUserRole();
+              set((state) => {
+                state.permissions = initializePermissions(role);
+              });
+            } catch (error) {
+              console.error('Failed to initialize permissions:', error);
+              // Set default permissions on error
+              set((state) => {
+                state.permissions = {
+                  canEditBudgets: false,
+                  canEditDates: false,
+                  isAdmin: false
+                };
+              });
+            }
           }
         }
       })),
@@ -242,11 +387,12 @@ export const useCapExStore = create<CapExState>()(
   )
 );
 
-// Convenience hooks
+// Selector hooks
 export const useProjects = () => useCapExStore((state) => state.projects);
 export const useAdminSettings = () => useCapExStore((state) => state.adminSettings);
 export const useProjectModal = () => useCapExStore((state) => state.modals.editProject);
 export const useAdminModal = () => useCapExStore((state) => state.modals.adminConfig);
 export const useCapExActions = () => useCapExStore((state) => state.actions);
 export const useCapExLoading = () => useCapExStore((state) => state.loading);
-export const useCapExErrors = () => useCapExStore((state) => state.errors); 
+export const useCapExErrors = () => useCapExStore((state) => state.errors);
+export const useCapExPermissions = () => useCapExStore((state) => state.permissions); 

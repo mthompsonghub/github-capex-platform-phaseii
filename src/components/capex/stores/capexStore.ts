@@ -1,18 +1,24 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import { Project, AdminSettings, ModalState, ProjectTransformer } from '../types/capex-unified';
+import { Project, ThresholdSettings, defaultSettings } from '../data/capexData';
+import { CapExRecord } from '../../../types/capex';
 import { supabase } from '../../../lib/supabase';
+
+interface ModalState<T> {
+  isOpen: boolean;
+  data: T | null;
+}
 
 interface CapExState {
   // Data
   projects: Project[];
-  adminSettings: AdminSettings;
+  adminSettings: ThresholdSettings;
   
   // UI State
   modals: {
-    projectForm: ModalState<Project>;
-    adminSettings: ModalState<AdminSettings>;
+    projectForm: ModalState<Project | CapExRecord>;
+    adminSettings: ModalState<ThresholdSettings>;
   };
   
   // Loading States
@@ -31,11 +37,12 @@ interface CapExState {
   fetchProjects: () => Promise<void>;
   fetchAdminSettings: () => Promise<void>;
   updateProject: (project: Project) => Promise<void>;
-  updateAdminSettings: (settings: AdminSettings) => Promise<void>;
+  updateAdminSettings: (settings: ThresholdSettings) => Promise<void>;
   setModalState: <T extends keyof CapExState['modals']>(
     modal: T,
     state: Partial<ModalState<any>>
   ) => void;
+  openProjectModal: (project: Project | CapExRecord) => void;
 }
 
 // Separate API layer
@@ -47,37 +54,105 @@ const capexAPI = {
       
     if (error) throw error;
     
-    const transformedProjects = data.map(ProjectTransformer.fromDatabase);
-    
-    return transformedProjects;
+    return data.map((record: any) => ({
+      id: record.id,
+      projectName: record.project_name,
+      projectOwner: record.project_owner,
+      startDate: new Date(record.start_date),
+      endDate: new Date(record.end_date),
+      projectType: {
+        id: record.project_type,
+        name: record.project_type === 'project' ? 'Projects' : 'Asset Purchases',
+        phaseWeights: {
+          feasibility: record.project_type === 'project' ? 15 : 0,
+          planning: record.project_type === 'project' ? 35 : 45,
+          execution: record.project_type === 'project' ? 45 : 50,
+          close: 5
+        }
+      },
+      totalBudget: record.total_budget,
+      totalActual: record.total_actual,
+      projectStatus: record.project_status,
+      phases: {
+        feasibility: {
+          id: 'feasibility',
+          name: 'Feasibility',
+          weight: record.project_type === 'project' ? 15 : 0,
+          subItems: [],
+          completion: record.feasibility_completion || 0
+        },
+        planning: {
+          id: 'planning',
+          name: 'Planning',
+          weight: record.project_type === 'project' ? 35 : 45,
+          subItems: [],
+          completion: record.planning_completion || 0
+        },
+        execution: {
+          id: 'execution',
+          name: 'Execution',
+          weight: record.project_type === 'project' ? 45 : 50,
+          subItems: [],
+          completion: record.execution_completion || 0
+        },
+        close: {
+          id: 'close',
+          name: 'Close',
+          weight: 5,
+          subItems: [],
+          completion: record.close_completion || 0
+        }
+      },
+      lastUpdated: new Date(record.updated_at)
+    }));
   },
   
-  async fetchAdminSettings(): Promise<AdminSettings> {
+  async fetchAdminSettings(): Promise<ThresholdSettings> {
     const { data, error } = await supabase
       .from('admin_settings')
       .select('*')
       .single();
       
     if (error) throw error;
-    return data;
+    return {
+      onTrackThreshold: data.on_track_threshold || defaultSettings.onTrackThreshold,
+      atRiskThreshold: data.at_risk_threshold || defaultSettings.atRiskThreshold,
+      impactedThreshold: data.impacted_threshold || defaultSettings.impactedThreshold
+    };
   },
   
   async updateProject(project: Project): Promise<void> {
-    const dbRecord = ProjectTransformer.toDatabase(project);
-    
     const { error } = await supabase
       .from('projects')
-      .update(dbRecord)
+      .update({
+        project_name: project.projectName,
+        project_owner: project.projectOwner,
+        start_date: project.startDate.toISOString(),
+        end_date: project.endDate.toISOString(),
+        project_type: project.projectType.id,
+        total_budget: project.totalBudget,
+        total_actual: project.totalActual,
+        project_status: project.projectStatus,
+        feasibility_completion: project.phases.feasibility.completion,
+        planning_completion: project.phases.planning.completion,
+        execution_completion: project.phases.execution.completion,
+        close_completion: project.phases.close.completion,
+        updated_at: new Date().toISOString()
+      })
       .eq('id', project.id);
       
     if (error) throw error;
   },
   
-  async updateAdminSettings(settings: AdminSettings): Promise<void> {
+  async updateAdminSettings(settings: ThresholdSettings): Promise<void> {
     const { error } = await supabase
       .from('admin_settings')
-      .update(settings)
-      .eq('id', settings.id);
+      .update({
+        on_track_threshold: settings.onTrackThreshold,
+        at_risk_threshold: settings.atRiskThreshold,
+        impacted_threshold: settings.impactedThreshold
+      })
+      .eq('id', 1);
       
     if (error) throw error;
   }
@@ -89,26 +164,7 @@ export const useCapExStore = create<CapExState>()(
       immer((set, get) => ({
         // Initial State
         projects: [],
-        adminSettings: {
-          id: 1,
-          onTrackThreshold: 90,
-          atRiskThreshold: 80,
-          showFinancials: true,
-          phaseWeights: {
-            project: {
-              feasibility: 15,
-              planning: 35,
-              execution: 45,
-              close: 5
-            },
-            asset_purchase: {
-              feasibility: 0,
-              planning: 45,
-              execution: 50,
-              close: 5
-            }
-          }
-        },
+        adminSettings: defaultSettings,
         
         modals: {
           projectForm: { isOpen: false, data: null },
@@ -129,16 +185,9 @@ export const useCapExStore = create<CapExState>()(
         fetchProjects: async () => {
           set(state => ({ isLoading: { ...state.isLoading, projects: true } }));
           try {
-            const { data, error } = await supabase
-              .from('projects')
-              .select('*');
-              
-            if (error) throw error;
-            
-            const transformedProjects = data.map(ProjectTransformer.fromDatabase);
-            
+            const projects = await capexAPI.fetchProjects();
             set({ 
-              projects: transformedProjects,
+              projects,
               errors: { ...get().errors, projects: null }
             });
           } catch (error: unknown) {
@@ -154,15 +203,9 @@ export const useCapExStore = create<CapExState>()(
         fetchAdminSettings: async () => {
           set(state => ({ isLoading: { ...state.isLoading, adminSettings: true } }));
           try {
-            const { data, error } = await supabase
-              .from('admin_settings')
-              .select('*')
-              .single();
-              
-            if (error) throw error;
-            
+            const settings = await capexAPI.fetchAdminSettings();
             set({ 
-              adminSettings: data,
+              adminSettings: settings,
               errors: { ...get().errors, adminSettings: null }
             });
           } catch (error: unknown) {
@@ -177,59 +220,41 @@ export const useCapExStore = create<CapExState>()(
         
         updateProject: async (project: Project) => {
           try {
-            const dbRecord = ProjectTransformer.toDatabase(project);
-            
-            const { error } = await supabase
-              .from('projects')
-              .update(dbRecord)
-              .eq('id', project.id);
-              
-            if (error) throw error;
-            
-            // Update local state
-            set(state => ({
-              projects: state.projects.map((p: Project) => 
-                p.id === project.id ? project : p
-              )
-            }));
+            await capexAPI.updateProject(project);
+            await get().fetchProjects();
           } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
             set(state => ({ 
               errors: { ...state.errors, projects: errorMessage }
             }));
-            throw error;
           }
         },
         
-        updateAdminSettings: async (settings: AdminSettings) => {
+        updateAdminSettings: async (settings: ThresholdSettings) => {
           try {
-            const { error } = await supabase
-              .from('admin_settings')
-              .update(settings)
-              .eq('id', settings.id);
-              
-            if (error) throw error;
-            
-            set({ adminSettings: settings });
+            await capexAPI.updateAdminSettings(settings);
+            await get().fetchAdminSettings();
           } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
             set(state => ({ 
               errors: { ...state.errors, adminSettings: errorMessage }
             }));
-            throw error;
           }
         },
         
         setModalState: (modal, state) => {
-          set(prevState => ({
-            modals: {
-              ...prevState.modals,
-              [modal]: {
-                ...prevState.modals[modal],
-                ...state
-              }
-            }
-          }));
+          set(draft => {
+            draft.modals[modal] = { ...draft.modals[modal], ...state };
+          });
+        },
+        
+        openProjectModal: (project: Project | CapExRecord) => {
+          set(draft => {
+            draft.modals.projectForm = {
+              isOpen: true,
+              data: project
+            };
+          });
         }
       })),
       {

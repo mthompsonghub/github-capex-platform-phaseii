@@ -36,16 +36,9 @@ import { CapExRecord, Phase } from '../../types/capex';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../../utils/projectUtils';
 import { roles } from '../../lib/supabase';
 import toast from 'react-hot-toast';
-import { useAdminSettings } from '../../stores/capexStore';
+import { useCapExStore } from './stores/capexStore';
 
 type ProjectStatus = 'On Track' | 'At Risk' | 'Impacted';
-
-interface ProjectEditModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  project: Project | CapExRecord;
-  onSave: (project: Project | CapExRecord) => void;
-}
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -91,17 +84,14 @@ const formatDate = (date: Date | string): string => {
   });
 };
 
-export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
-  isOpen,
-  onClose,
-  project: initialProject,
-  onSave,
-}) => {
-  const adminSettings = useAdminSettings();
+export const ProjectEditModal: React.FC = () => {
+  const { modals, setModalState, updateProject, adminSettings } = useCapExStore();
+  const { isOpen, data: initialProject } = modals.projectForm;
+  
   const [activeTab, setActiveTab] = useState(0);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showUnsavedWarning, setShowUnsavedWarning] = useState(false);
-  const [editedProject, setEditedProject] = useState<Project | CapExRecord>(initialProject);
+  const [editedProject, setEditedProject] = useState<Project | CapExRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -111,11 +101,9 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   const [calculatedStatus, setCalculatedStatus] = useState<ProjectStatus | null>(null);
   const [statusChanged, setStatusChanged] = useState(false);
 
-  // Permission helpers
+  const canEditPercentages = isAdmin;
   const canEditDates = isAdmin;
   const canEditBudgets = isAdmin;
-  const canEditPercentages = true; // All users can edit percentages
-  const canEditComments = true; // All users can edit comments
 
   // Check permissions when modal opens
   useEffect(() => {
@@ -138,10 +126,12 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   }, [isOpen]);
 
   useEffect(() => {
-    setEditedProject(initialProject);
-    setHasUnsavedChanges(false);
-    setActiveTab(0);
-    calculateAndSetOverallCompletion(initialProject);
+    if (initialProject) {
+      setEditedProject(initialProject);
+      setHasUnsavedChanges(false);
+      setActiveTab(0);
+      calculateAndSetOverallCompletion(initialProject);
+    }
   }, [initialProject]);
 
   // Calculate status whenever completion changes
@@ -156,8 +146,8 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
       const newStatus = determineProjectStatus(
         completion,
         100,
-        adminSettings.onTrackThreshold,
-        adminSettings.atRiskThreshold
+        adminSettings.atRiskThreshold,
+        adminSettings.impactedThreshold
       );
       setCalculatedStatus(newStatus);
       
@@ -236,26 +226,40 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
 
   const handleClose = () => {
     if (hasUnsavedChanges) {
-      setShowConfirmDialog(true);
+      setShowUnsavedWarning(true);
     } else {
-      onClose();
+      closeModal();
     }
   };
 
   const handleConfirmClose = () => {
-    setShowConfirmDialog(false);
+    setShowUnsavedWarning(false);
+    closeModal();
+  };
+
+  const closeModal = () => {
+    setModalState('projectForm', { isOpen: false, data: null });
+    setEditedProject(null);
     setHasUnsavedChanges(false);
-    onClose();
+    setActiveTab(0);
   };
 
   const handleSave = async () => {
+    if (!editedProject) return;
+
     try {
       setIsSaving(true);
-      await onSave(editedProject);
-      setHasUnsavedChanges(false);
-      onClose();
+      // Convert CapExRecord to Project if needed
+      const projectToSave = 'phases' in editedProject 
+        ? editedProject 
+        : convertCapExRecordToProject(editedProject);
+      
+      await updateProject(projectToSave);
+      toast.success('Project updated successfully');
+      closeModal();
     } catch (error) {
       console.error('Error saving project:', error);
+      toast.error('Failed to save project');
     } finally {
       setIsSaving(false);
     }
@@ -266,414 +270,242 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
     subItemId: string,
     value: number
   ) => {
-    setHasUnsavedChanges(true);
-    
+    if (!editedProject) return;
+
     if ('phases' in editedProject) {
-      // Handle Project type
-      const updatedProject = {
-        ...editedProject,
-        phases: {
-          ...editedProject.phases,
-          [phaseKey]: {
-            ...editedProject.phases[phaseKey],
-            subItems: editedProject.phases[phaseKey].subItems.map(item =>
-              item.id === subItemId ? { ...item, value } : item
-            )
-          }
-        }
-      } as Project;
-
-      // Recalculate phase completion using only non-N/A items
-      const phase = updatedProject.phases[phaseKey];
-      phase.completion = calculatePhaseCompletionExcludingNA(phase.subItems);
-      
-      setEditedProject(updatedProject);
-      calculateAndSetOverallCompletion(updatedProject);
-    } else {
-      // Handle CapExRecord type
-      const updatedProject = {
-        ...editedProject,
+      const updatedPhases = {
+        ...editedProject.phases,
         [phaseKey]: {
-          ...editedProject[phaseKey],
-          subItems: editedProject[phaseKey].subItems.map(item =>
-            item.id === subItemId ? { ...item, target: value, actual: value } : item
-          ),
-          status: {
-            target: value,
-            actual: value
-          }
+          ...editedProject.phases[phaseKey],
+          subItems: editedProject.phases[phaseKey].subItems.map(item =>
+            item.id === subItemId ? { ...item, value } : item
+          )
         }
-      } as CapExRecord;
+      };
 
+      setEditedProject({
+        ...editedProject,
+        phases: updatedPhases
+      });
+    } else {
+      // Handle CapExRecord case
+      const updatedProject = {
+        ...editedProject,
+        [`${phaseKey}_${subItemId}`]: value
+      };
       setEditedProject(updatedProject);
-      calculateAndSetOverallCompletion(updatedProject);
     }
+
+    setHasUnsavedChanges(true);
   };
 
   const renderPhaseSection = (
     phaseKey: 'feasibility' | 'planning' | 'execution' | 'close',
     phaseTitle: string
   ) => {
-    if (isLoading) {
-      return (
-        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-          <CircularProgress />
-        </Box>
-      );
-    }
+    if (!editedProject) return null;
 
-    const phase = 'phases' in editedProject 
-      ? editedProject.phases[phaseKey]
-      : editedProject[phaseKey];
-    
-    const weight = editedProject.projectType.phaseWeights[phaseKey];
-    const completion = 'completion' in phase ? phase.completion : phase.status.actual;
-
-    // Calculate phase impact on overall status
     const phaseImpact = () => {
-      const maxPossibleChange = (100 - completion) * (weight / 100);
-      return maxPossibleChange;
+      if ('phases' in editedProject) {
+        const phase = editedProject.phases[phaseKey];
+        const completion = calculatePhaseCompletionExcludingNA(phase.subItems);
+        return (
+          <Typography variant="body2" color="text.secondary">
+            Overall Impact: {phase.weight}%
+          </Typography>
+        );
+      }
+      return null;
     };
 
     return (
-      <Paper 
-        elevation={0} 
-        sx={{ 
-          p: 3, 
-          mb: 3,
-          bgcolor: 'background.default',
-          position: 'relative'
-        }}
-      >
-        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-          <Typography variant="h6">
-            {phaseTitle} ({weight}%)
-          </Typography>
-          <Box textAlign="right">
-            <Typography variant="h6" color="primary">
-              {completion}%
-            </Typography>
-            <Typography variant="caption" color="textSecondary">
-              Max impact: +{Math.round(phaseImpact())}% to overall
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Sub-items grid */}
-        <Grid container spacing={2}>
-          {'subItems' in phase && phase.subItems.map((item: any) => (
-            <Grid item xs={12} sm={6} key={item.id}>
-              <Box
-                sx={{
-                  p: 2,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  bgcolor: item.isNA ? 'action.disabledBackground' : 'background.paper'
-                }}
-              >
-                <Typography variant="subtitle2" gutterBottom>
-                  {item.name}
-                </Typography>
-                <Slider
-                  value={item.value}
-                  onChange={(_e, value) => {
-                    if (!canEditPercentages) return;
-                    updatePhaseValue(phaseKey, item.id, value as number);
-                  }}
-                  disabled={!canEditPercentages || item.isNA}
-                  valueLabelDisplay="auto"
-                  marks={[
-                    { value: 0, label: '0%' },
-                    { value: 25, label: '25%' },
-                    { value: 50, label: '50%' },
-                    { value: 75, label: '75%' },
-                    { value: 100, label: '100%' }
-                  ]}
-                  step={1}
-                  min={0}
-                  max={100}
-                  sx={{
-                    '& .MuiSlider-thumb': {
-                      transition: 'left 0.2s ease-out'
-                    }
-                  }}
-                />
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        size="small"
-                        checked={!item.isNA}
-                        onChange={(e) => {
-                          if (!canEditPercentages) return;
-                          const updatedItem = { ...item, isNA: !e.target.checked };
-                          if (updatedItem.isNA) updatedItem.value = 0;
-                          updatePhaseValue(phaseKey, item.id, updatedItem.value);
-                        }}
-                        disabled={!canEditPercentages}
-                      />
-                    }
-                    label={
-                      <Typography variant="caption" color="textSecondary">
-                        {item.isNA ? 'N/A' : 'Active'}
-                      </Typography>
-                    }
-                  />
-                  <Typography variant="body2" color="textSecondary">
-                    {item.value}%
-                  </Typography>
-                </Box>
-              </Box>
-            </Grid>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" sx={{ mb: 2 }}>
+          {phaseTitle}
+        </Typography>
+        {phaseImpact()}
+        <Box sx={{ mt: 2 }}>
+          {('phases' in editedProject ? editedProject.phases[phaseKey].subItems : []).map((item) => (
+            <Box key={item.id} sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                {item.name}
+              </Typography>
+              <Slider
+                value={item.value}
+                onChange={(_e, value) => updatePhaseValue(phaseKey, item.id, value as number)}
+                disabled={!canEditPercentages}
+                marks
+                min={0}
+                max={100}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(value) => `${value}%`}
+              />
+            </Box>
           ))}
-        </Grid>
-
-        {/* Permission indicator for non-admin users */}
-        {!canEditPercentages && (
-          <Box 
-            sx={{ 
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              p: 1
-            }}
-          >
-            <Tooltip title="You do not have permission to edit percentages">
-              <LockIcon size={16} className="text-gray-400" />
-            </Tooltip>
-          </Box>
-        )}
-      </Paper>
+        </Box>
+      </Box>
     );
   };
 
   const renderBasicInfoTab = () => {
-    if (isLoading) {
-      return (
-        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-          <CircularProgress />
-        </Box>
-      );
-    }
+    if (!editedProject) return null;
 
-    // Type-safe field mappings
-    type FieldMapping = {
-      projectField: string;
-      recordField: string;
-      type: 'string' | 'number' | 'date';
+    const fieldMappings = {
+      projectName: {
+        projectField: 'projectName',
+        recordField: 'project_name',
+        type: 'string' as const
+      },
+      projectType: {
+        projectField: 'projectType',
+        recordField: 'project_type',
+        type: 'select' as const,
+        options: ['Project', 'Asset Purchase']
+      },
+      projectOwner: {
+        projectField: 'projectOwner',
+        recordField: 'project_owner',
+        type: 'string' as const
+      },
+      projectStatus: {
+        projectField: 'projectStatus',
+        recordField: 'project_status',
+        type: 'select' as const,
+        options: ['On Track', 'At Risk', 'Impacted'],
+        readOnly: true
+      },
+      priority: {
+        projectField: 'priority',
+        recordField: 'priority',
+        type: 'select' as const,
+        options: ['High', 'Medium', 'Low']
+      },
+      description: {
+        projectField: 'description',
+        recordField: 'description',
+        type: 'textarea' as const
+      }
     };
 
-    const fieldMappings: Record<string, FieldMapping> = {
-      name: { projectField: 'name', recordField: 'project_name', type: 'string' },
-      status: { projectField: 'status', recordField: 'project_status', type: 'string' },
-      startDate: { projectField: 'startDate', recordField: 'start_date', type: 'date' },
-      endDate: { projectField: 'endDate', recordField: 'end_date', type: 'date' },
-      comments: { projectField: 'comments', recordField: 'project_comments', type: 'string' },
-    };
-
-    // Helper to safely get values based on project type
     const getValue = (field: keyof typeof fieldMappings) => {
-      const mapping = fieldMappings[field];
-      const value = 'phases' in editedProject
-        ? (editedProject as any)[mapping.projectField]
-        : (editedProject as any)[mapping.recordField];
-      
-      return value;
+      if ('phases' in editedProject) {
+        return editedProject[fieldMappings[field].projectField as keyof Project];
+      }
+      return editedProject[fieldMappings[field].recordField as keyof CapExRecord];
     };
 
-    // Helper to safely set values based on project type
     const setValue = (field: keyof typeof fieldMappings, value: any) => {
-      const mapping = fieldMappings[field];
-      setHasUnsavedChanges(true);
-      
       if ('phases' in editedProject) {
         setEditedProject({
           ...editedProject,
-          [mapping.projectField]: value
-        } as Project);
+          [fieldMappings[field].projectField]: value
+        });
       } else {
         setEditedProject({
           ...editedProject,
-          [mapping.recordField]: value
-        } as CapExRecord);
+          [fieldMappings[field].recordField]: value
+        });
       }
-    };
-
-    // Get status color based on current status
-    const getStatusColor = (status: ProjectStatus) => {
-      switch (status) {
-        case 'On Track':
-          return 'success.main';
-        case 'At Risk':
-          return 'warning.main';
-        case 'Impacted':
-          return 'error.main';
-        default:
-          return 'text.secondary';
-      }
+      setHasUnsavedChanges(true);
     };
 
     return (
       <Grid container spacing={3}>
-        <Grid item xs={12}>
-          <Typography variant="subtitle2" color="textSecondary" sx={{ mb: 1 }}>
-            {isAdmin ? 'Admin Mode' : 'Project Owner Mode'}
-          </Typography>
-        </Grid>
-        
-        <Grid item xs={12} sm={6}>
+        <Grid item xs={12} md={6}>
           <TextField
             fullWidth
             label="Project Name"
-            value={getValue('name')}
-            onChange={(e) => setValue('name', e.target.value)}
+            value={getValue('projectName')}
+            onChange={(e) => setValue('projectName', e.target.value)}
+            disabled={!canEditDates}
           />
         </Grid>
-
-        <Grid item xs={12} sm={6}>
+        <Grid item xs={12} md={6}>
           <FormControl fullWidth>
-            <InputLabel>Status</InputLabel>
+            <InputLabel>Project Type</InputLabel>
             <Select
-              value={getValue('status')}
-              label="Status"
-              onChange={(e) => setValue('status', e.target.value)}
+              value={getValue('projectType')}
+              onChange={(e) => setValue('projectType', e.target.value)}
+              label="Project Type"
+              disabled={!canEditDates}
             >
-              <MenuItem value="On Track">On Track</MenuItem>
-              <MenuItem value="At Risk">At Risk</MenuItem>
-              <MenuItem value="Impacted">Impacted</MenuItem>
+              {fieldMappings.projectType.options.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
         </Grid>
-
-        {/* Status Calculation Info */}
-        <Grid item xs={12}>
-          <Box sx={{ 
-            p: 2, 
-            bgcolor: 'background.paper', 
-            borderRadius: 1, 
-            border: '1px solid',
-            borderColor: 'divider'
-          }}>
-            <Typography variant="h6" gutterBottom>
-              Auto-Calculated Status
-            </Typography>
-            <Grid container spacing={2} alignItems="center">
-              <Grid item xs={6}>
-                <Typography variant="body2" color="textSecondary">
-                  Current Completion: {Math.round(overallCompletion)}%
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Status Thresholds: On Track ≥{Math.round(adminSettings.onTrackThreshold * 100)}%, 
-                  At Risk ≥{Math.round(adminSettings.atRiskThreshold * 100)}%
-                </Typography>
-              </Grid>
-              <Grid item xs={6}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography 
-                    variant="h6" 
-                    color={getStatusColor(calculatedStatus || 'On Track')}
-                  >
-                    {calculatedStatus || 'Calculating...'}
-                  </Typography>
-                  {statusChanged && (
-                    <Chip
-                      label="Updated"
-                      color="info"
-                      size="small"
-                      sx={{ ml: 1 }}
-                    />
-                  )}
-                </Box>
-              </Grid>
-            </Grid>
-          </Box>
+        <Grid item xs={12} md={6}>
+          <TextField
+            fullWidth
+            label="Project Owner"
+            value={getValue('projectOwner')}
+            onChange={(e) => setValue('projectOwner', e.target.value)}
+            disabled={!canEditDates}
+          />
         </Grid>
-
-        <Grid item xs={12} sm={6}>
-          <Tooltip 
-            title={!canEditDates ? "Only administrators can edit dates" : ""}
-            placement="top"
-          >
-            <Box>
-              <TextField
-                fullWidth
-                label="Start Date"
-                type="date"
-                value={new Date(getValue('startDate')).toISOString().split('T')[0]}
-                disabled={!canEditDates}
-                InputProps={{
-                  endAdornment: !canEditDates && (
-                    <InputAdornment position="end">
-                      <LockIcon size={16} />
-                    </InputAdornment>
-                  )
-                }}
-                onChange={(e) => {
-                  if (!canEditDates) return;
-                  setValue('startDate', new Date(e.target.value));
-                }}
-                sx={{
-                  '& .Mui-disabled': {
-                    backgroundColor: 'action.disabledBackground',
-                    cursor: 'not-allowed'
+        <Grid item xs={12} md={6}>
+          <FormControl fullWidth>
+            <InputLabel>Priority</InputLabel>
+            <Select
+              value={getValue('priority')}
+              onChange={(e) => setValue('priority', e.target.value)}
+              label="Priority"
+              disabled={!canEditDates}
+            >
+              {fieldMappings.priority.options.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Grid>
+        <Grid item xs={12} md={6}>
+          <FormControl fullWidth>
+            <InputLabel>Status</InputLabel>
+            <Select
+              value={getValue('projectStatus')}
+              onChange={(e) => setValue('projectStatus', e.target.value)}
+              label="Status"
+              disabled={true}
+              sx={{
+                '& .MuiSelect-select': {
+                  color: (theme) => {
+                    const status = getValue('projectStatus') as ProjectStatus;
+                    switch (status) {
+                      case 'On Track':
+                        return theme.palette.success.main;
+                      case 'At Risk':
+                        return theme.palette.warning.main;
+                      case 'Impacted':
+                        return theme.palette.error.main;
+                      default:
+                        return theme.palette.text.primary;
+                    }
                   }
-                }}
-              />
-            </Box>
-          </Tooltip>
-        </Grid>
-
-        <Grid item xs={12} sm={6}>
-          <Tooltip 
-            title={!canEditDates ? "Only administrators can edit dates" : ""}
-            placement="top"
-          >
-            <Box>
-              <TextField
-                fullWidth
-                label="End Date"
-                type="date"
-                value={new Date(getValue('endDate')).toISOString().split('T')[0]}
-                disabled={!canEditDates}
-                InputProps={{
-                  endAdornment: !canEditDates && (
-                    <InputAdornment position="end">
-                      <LockIcon size={16} />
-                    </InputAdornment>
-                  )
-                }}
-                onChange={(e) => {
-                  if (!canEditDates) return;
-                  setValue('endDate', new Date(e.target.value));
-                }}
-                sx={{
-                  '& .Mui-disabled': {
-                    backgroundColor: 'action.disabledBackground',
-                    cursor: 'not-allowed'
-                  }
-                }}
-              />
-            </Box>
-          </Tooltip>
-        </Grid>
-
-        {/* Comments section - Available to all users */}
-        <Grid item xs={12}>
-          <Divider sx={{ my: 2 }}>
-            <Typography variant="subtitle2" color="textSecondary">
-              Comments
-            </Typography>
-          </Divider>
+                }
+              }}
+            >
+              {fieldMappings.projectStatus.options.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Grid>
         <Grid item xs={12}>
           <TextField
             fullWidth
-            label="Comments"
+            label="Description"
+            value={getValue('description')}
+            onChange={(e) => setValue('description', e.target.value)}
+            disabled={!canEditDates}
             multiline
             rows={4}
-            value={getValue('comments')}
-            onChange={(e) => setValue('comments', e.target.value)}
           />
         </Grid>
       </Grid>
@@ -681,7 +513,9 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
   };
 
   const renderStatusAndMilestonesTab = () => {
-    const isProject = 'projectName' in editedProject;
+    if (!editedProject) return null;
+
+    const isProject = 'phases' in editedProject;
     const status = isProject ? editedProject.projectStatus : editedProject.project_status;
     const milestone = isProject ? editedProject.comments : editedProject.upcoming_milestone;
     const comments = isProject ? editedProject.comments : editedProject.comments_risk;
@@ -699,6 +533,49 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
         default:
           return 'default';
       }
+    };
+
+    const handleDateChange = (field: 'startDate' | 'endDate', value: string) => {
+      if (!editedProject) return;
+      
+      const date = new Date(value);
+      if (isProject) {
+        setEditedProject({
+          ...editedProject,
+          [field]: date.toISOString()
+        });
+      } else {
+        setEditedProject({
+          ...editedProject,
+          [field === 'startDate' ? 'start_date' : 'end_date']: date.toISOString()
+        });
+      }
+      setHasUnsavedChanges(true);
+    };
+
+    const handlePhaseChange = (phase: string, value: number) => {
+      if (!editedProject) return;
+
+      if (isProject) {
+        const newPhases = {
+          ...editedProject.phases,
+          [phase]: { ...editedProject.phases[phase as keyof typeof editedProject.phases], completion: value }
+        };
+        setEditedProject({
+          ...editedProject,
+          phases: newPhases
+        });
+      } else {
+        const phaseData = editedProject[phase as keyof CapExRecord] as Phase;
+        setEditedProject({
+          ...editedProject,
+          [phase]: {
+            ...phaseData,
+            status: { ...phaseData.status, actual: value }
+          }
+        });
+      }
+      setHasUnsavedChanges(true);
     };
 
     return (
@@ -768,190 +645,249 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
               </Box>
             </Box>
 
-            {/* Threshold Information */}
+            {/* Target Dates */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                Target Dates
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Start Date"
+                    type="date"
+                    value={isProject ? new Date(editedProject.startDate).toISOString().split('T')[0] : 
+                      new Date(editedProject.start_date).toISOString().split('T')[0]}
+                    onChange={(e) => handleDateChange('startDate', e.target.value)}
+                    disabled={!canEditDates}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="End Date"
+                    type="date"
+                    value={isProject ? new Date(editedProject.endDate).toISOString().split('T')[0] : 
+                      new Date(editedProject.end_date).toISOString().split('T')[0]}
+                    onChange={(e) => handleDateChange('endDate', e.target.value)}
+                    disabled={!canEditDates}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+
+            {/* Milestones */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                Upcoming Milestone
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                rows={2}
+                value={milestone || ''}
+                onChange={(e) => {
+                  if (!editedProject) return;
+                  if (isProject) {
+                    setEditedProject({
+                      ...editedProject,
+                      comments: e.target.value
+                    });
+                  } else {
+                    setEditedProject({
+                      ...editedProject,
+                      upcoming_milestone: e.target.value
+                    });
+                  }
+                  setHasUnsavedChanges(true);
+                }}
+                disabled={!canEditDates}
+              />
+            </Box>
+
+            {/* Phase Percentages */}
             <Box>
               <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                Status Thresholds
+                Phase Progress
               </Typography>
-              <Box sx={{ 
-                p: 2, 
-                bgcolor: 'background.paper', 
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'divider'
-              }}>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" color="success.main">
-                      On Track: ≥{Math.round(adminSettings.onTrackThreshold * 100)}%
-                    </Typography>
+              <Grid container spacing={2}>
+                {Object.entries(isProject ? editedProject.phases : {
+                  feasibility: { completion: editedProject.feasibility.status.actual },
+                  planning: { completion: editedProject.planning.status.actual },
+                  execution: { completion: editedProject.execution.status.actual },
+                  close: { completion: editedProject.close.status.actual }
+                }).map(([phase, data]) => (
+                  <Grid item xs={12} sm={6} key={phase}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="textSecondary" gutterBottom>
+                        {phase.charAt(0).toUpperCase() + phase.slice(1)}
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Slider
+                          value={data.completion}
+                          onChange={(_, value) => handlePhaseChange(phase, value as number)}
+                          disabled={!canEditPercentages}
+                          sx={{ flex: 1 }}
+                        />
+                        <Typography variant="body2" sx={{ minWidth: 45 }}>
+                          {Math.round(data.completion)}%
+                        </Typography>
+                      </Box>
+                    </Box>
                   </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Typography variant="body2" color="warning.main">
-                      At Risk: ≥{Math.round(adminSettings.atRiskThreshold * 100)}%
-                    </Typography>
-                  </Grid>
-                </Grid>
-                {isAdmin && (
-                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-                    Thresholds can be configured in Admin Settings
-                  </Typography>
-                )}
-              </Box>
+                ))}
+              </Grid>
             </Box>
           </Paper>
-        </Grid>
-
-        {/* Milestone Section */}
-        <Grid item xs={12}>
-          <Paper elevation={0} sx={{ p: 3, bgcolor: 'background.default' }}>
-            <Typography variant="h6" gutterBottom>
-              Milestones & Comments
-            </Typography>
-            
-            <Grid container spacing={3}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Upcoming Milestone"
-                  value={milestone || ''}
-                  onChange={(e) => {
-                    setHasUnsavedChanges(true);
-                    if (isProject) {
-                      setEditedProject({
-                        ...editedProject as Project,
-                        comments: e.target.value
-                      });
-                    } else {
-                      setEditedProject({
-                        ...editedProject as CapExRecord,
-                        upcoming_milestone: e.target.value
-                      });
-                    }
-                  }}
-                />
-              </Grid>
-              
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Risk Comments"
-                  multiline
-                  rows={4}
-                  value={comments || ''}
-                  onChange={(e) => {
-                    setHasUnsavedChanges(true);
-                    if (isProject) {
-                      setEditedProject({
-                        ...editedProject as Project,
-                        comments: e.target.value
-                      });
-                    } else {
-                      setEditedProject({
-                        ...editedProject as CapExRecord,
-                        comments_risk: e.target.value
-                      });
-                    }
-                  }}
-                />
-              </Grid>
-            </Grid>
-          </Paper>
-        </Grid>
-
-        {/* Last Updated */}
-        <Grid item xs={12}>
-          <Typography variant="caption" color="textSecondary">
-            Last Updated: {new Date(lastUpdated).toLocaleString()}
-          </Typography>
         </Grid>
       </Grid>
     );
   };
 
   const renderFinancialDetailsTab = () => {
-    if (isLoading) {
-      return (
-        <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-          <CircularProgress />
-        </Box>
-      );
-    }
+    if (!editedProject) return null;
 
-    if (!canEditBudgets) {
-      return (
-        <Box p={3} textAlign="center">
-          <LockIcon size={48} className="text-gray-400 mb-4" />
-          <Typography variant="h6" color="textSecondary" gutterBottom>
-            Financial Details Restricted
-          </Typography>
-          <Typography variant="body2" color="textSecondary">
-            Only administrators can view and edit financial details.
-            Please contact your administrator for access.
-          </Typography>
-        </Box>
-      );
-    }
-
-    const isProject = 'projectName' in editedProject;
+    const isProject = 'phases' in editedProject;
     const budget = isProject ? editedProject.totalBudget : editedProject.total_budget;
-    const actual = isProject ? editedProject.totalActual : editedProject.total_actual;
-    const spentPercentage = (actual / budget) * 100;
+    const actualSpend = isProject ? editedProject.totalActual : editedProject.total_actual;
+    const financialNotes = isProject ? editedProject.comments : editedProject.comments_risk;
+
+    const handleBudgetChange = (value: number) => {
+      if (!editedProject) return;
+      if (isProject) {
+        setEditedProject({
+          ...editedProject,
+          totalBudget: value
+        });
+      } else {
+        setEditedProject({
+          ...editedProject,
+          total_budget: value
+        });
+      }
+      setHasUnsavedChanges(true);
+    };
+
+    const handleActualSpendChange = (value: number) => {
+      if (!editedProject) return;
+      if (isProject) {
+        setEditedProject({
+          ...editedProject,
+          totalActual: value
+        });
+      } else {
+        setEditedProject({
+          ...editedProject,
+          total_actual: value
+        });
+      }
+      setHasUnsavedChanges(true);
+    };
+
+    const handleFinancialNotesChange = (value: string) => {
+      if (!editedProject) return;
+      if (isProject) {
+        setEditedProject({
+          ...editedProject,
+          comments: value
+        });
+      } else {
+        setEditedProject({
+          ...editedProject,
+          comments_risk: value
+        });
+      }
+      setHasUnsavedChanges(true);
+    };
 
     return (
       <Grid container spacing={3}>
         <Grid item xs={12}>
-          <Paper elevation={0} sx={{ p: 3, border: '1px solid #E5E7EB', borderRadius: '12px' }}>
+          <Paper elevation={0} sx={{ p: 3, bgcolor: 'background.default' }}>
             <Typography variant="h6" gutterBottom>
-              Budget Overview
+              Financial Details
             </Typography>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Total Budget
-                </Typography>
-                <Typography variant="h5" color="text.primary">
-                  {formatCurrency(budget)}
-                </Typography>
+
+            {/* Budget Section */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                Budget Information
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Budget"
+                    type="number"
+                    value={budget || 0}
+                    onChange={(e) => handleBudgetChange(parseFloat(e.target.value))}
+                    disabled={!canEditBudgets}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Actual Spend"
+                    type="number"
+                    value={actualSpend || 0}
+                    onChange={(e) => handleActualSpendChange(parseFloat(e.target.value))}
+                    disabled={!canEditBudgets}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Box sx={{ 
+                    p: 2, 
+                    bgcolor: 'background.paper', 
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'divider'
+                  }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="body2" color="textSecondary">
+                          Remaining Budget
+                        </Typography>
+                        <Typography variant="h6" color={budget && actualSpend && (budget - actualSpend) < 0 ? 'error' : 'success'}>
+                          {formatCurrency((budget || 0) - (actualSpend || 0))}
+                        </Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Typography variant="body2" color="textSecondary">
+                          Budget Utilization
+                        </Typography>
+                        <Typography variant="h6" color={budget && actualSpend && (actualSpend / budget) > 1 ? 'error' : 'success'}>
+                          {budget ? `${Math.round((actualSpend || 0) / budget * 100)}%` : '0%'}
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </Grid>
               </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Total Actual
-                </Typography>
-                <Typography variant="h5" color={actual > budget ? 'error.main' : 'text.primary'}>
-                  {formatCurrency(actual)}
-                </Typography>
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Spent Percentage
-                </Typography>
-                <Typography 
-                  variant="h5" 
-                  color={spentPercentage > 100 ? 'error.main' : 'text.primary'}
-                >
-                  {Math.round(spentPercentage)}%
-                </Typography>
-              </Grid>
-            </Grid>
-          </Paper>
-        </Grid>
-        <Grid item xs={12}>
-          <Paper 
-            elevation={0} 
-            sx={{ 
-              p: 3, 
-              border: '1px solid #E5E7EB', 
-              borderRadius: '12px',
-              backgroundColor: '#F9FAFB'
-            }}
-          >
-            <Typography variant="subtitle2" color="text.secondary">
-              Quarterly Breakdown
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Coming in future update
-            </Typography>
+            </Box>
+
+            {/* Financial Notes */}
+            <Box>
+              <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                Financial Notes
+              </Typography>
+              <TextField
+                fullWidth
+                multiline
+                rows={4}
+                value={financialNotes || ''}
+                onChange={(e) => handleFinancialNotesChange(e.target.value)}
+                disabled={!canEditBudgets}
+                placeholder="Add any financial notes or comments here..."
+              />
+            </Box>
           </Paper>
         </Grid>
       </Grid>
@@ -960,16 +896,20 @@ export const ProjectEditModal: React.FC<ProjectEditModalProps> = ({
 
   const projectName = 'projectName' in editedProject ? editedProject.projectName : editedProject.project_name;
 
+  if (!editedProject) {
+    return null;
+  }
+
   return (
     <>
       <Dialog
         open={isOpen}
         onClose={handleClose}
-        maxWidth="md"
+        maxWidth="lg"
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: '12px',
+            minHeight: '80vh',
             maxHeight: '90vh'
           }
         }}
