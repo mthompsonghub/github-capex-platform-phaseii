@@ -277,5 +277,6 @@ export interface ModalState<T> {
 export interface AdminSettings {
   onTrackThreshold: number;
   atRiskThreshold: number;
+  impactedThreshold: number;
   showFinancials: boolean;
 } 

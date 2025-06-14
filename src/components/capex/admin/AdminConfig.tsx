@@ -10,17 +10,34 @@ import {
   Typography,
   Alert,
   Slider,
-  Stack
+  Stack,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import { defaultSettings, updateStatusThresholds, getStoredThresholds, ThresholdSettings } from '../data/capexData';
 import { CapExErrorBoundary } from '../../ErrorBoundary';
 import toast from 'react-hot-toast';
 import debounce from 'lodash/debounce';
 
+export interface ExtendedThresholdSettings extends ThresholdSettings {
+  projectWeights: {
+    feasibility: number;
+    planning: number;
+    execution: number;
+    close: number;
+  };
+  assetWeights: {
+    feasibility: number;
+    planning: number;
+    execution: number;
+    close: number;
+  };
+}
+
 interface AdminConfigProps {
   open: boolean;
   onClose: () => void;
-  onUpdate?: () => void;
+  onUpdate?: (settings: ExtendedThresholdSettings) => Promise<void>;
 }
 
 interface ThresholdValidation {
@@ -79,11 +96,41 @@ const validateThresholds = (
   return { isValid: true };
 };
 
+const defaultExtendedSettings: ExtendedThresholdSettings = {
+  ...defaultSettings,
+  projectWeights: {
+    feasibility: 15,
+    planning: 35,
+    execution: 45,
+    close: 5
+  },
+  assetWeights: {
+    feasibility: 0,
+    planning: 45,
+    execution: 50,
+    close: 5
+  }
+};
+
 const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdate }) => {
-  const [thresholds, setThresholds] = useState<ThresholdSettings>(defaultSettings);
+  console.log('AdminConfigContent rendered with props:', { open, onClose, onUpdate });
+  
+  useEffect(() => {
+    console.log('AdminConfigContent open state changed:', open);
+  }, [open]);
+
+  const [thresholds, setThresholds] = useState<ExtendedThresholdSettings>(defaultExtendedSettings);
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [hasShownError, setHasShownError] = useState(false);
+
+  // Extract values from thresholds state
+  const { onTrackThreshold, atRiskThreshold, impactedThreshold } = thresholds;
+  const { projectWeights, assetWeights } = thresholds;
+
+  // Calculate totals
+  const projectTotal = projectWeights.feasibility + projectWeights.planning + projectWeights.execution + projectWeights.close;
+  const assetTotal = assetWeights.feasibility + assetWeights.planning + assetWeights.execution + assetWeights.close;
 
   // Load thresholds from storage when dialog opens
   useEffect(() => {
@@ -92,14 +139,18 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
       try {
         const storedThresholds = getStoredThresholds();
         console.log('Loaded stored thresholds:', storedThresholds);
-        setThresholds(storedThresholds);
+        setThresholds({
+          ...storedThresholds,
+          projectWeights: defaultExtendedSettings.projectWeights,
+          assetWeights: defaultExtendedSettings.assetWeights
+        });
         setError('');
         setIsLoading(false);
         setHasShownError(false);
       } catch (err) {
         console.error('Error loading thresholds:', err);
         toast.error('Failed to load thresholds. Using defaults.');
-        setThresholds(defaultSettings);
+        setThresholds(defaultExtendedSettings);
       }
     }
   }, [open]);
@@ -113,98 +164,66 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
     []
   );
 
-  const handleSliderChange = (type: 'onTrack' | 'atRisk' | 'impacted', newValue: number) => {
-    try {
-      console.log(`Slider change - ${type}:`, newValue);
-      
-      // Validate value is between 0-100
-      if (isNaN(newValue) || newValue < 0 || newValue > 100) {
-        throw new Error('Value must be between 0% and 100%');
-      }
-      
-      const newThresholds = {
-        ...thresholds,
-        [type === 'onTrack' ? 'onTrackThreshold' : 
-         type === 'atRisk' ? 'atRiskThreshold' : 'impactedThreshold']: newValue
-      };
-      
-      const validation = validateThresholds(
-        newThresholds.onTrackThreshold,
-        newThresholds.atRiskThreshold,
-        newThresholds.impactedThreshold
-      );
-      
-      if (!validation.isValid) {
-        setError(validation.error!);
-        if (!hasShownError) {
-          showErrorToast(validation.error!);
-          setHasShownError(true);
-        }
-        return;
-      }
-
-      setError('');
-      setHasShownError(false);
-      setThresholds(newThresholds);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Invalid value entered';
-      setError(errorMessage);
-      if (!hasShownError) {
-        showErrorToast(errorMessage);
-        setHasShownError(true);
-      }
-    }
+  const handleThresholdChange = (name: keyof ThresholdSettings, value: number) => {
+    setThresholds(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
-  const handleSave = async () => {
-    console.log('Save clicked - current thresholds:', thresholds);
+  const handleProjectWeightChange = (phase: keyof typeof projectWeights, value: number) => {
+    setThresholds(prev => ({
+      ...prev,
+      projectWeights: {
+        ...prev.projectWeights,
+        [phase]: value
+      }
+    }));
+  };
+
+  const handleAssetWeightChange = (asset: keyof typeof assetWeights, value: number) => {
+    setThresholds(prev => ({
+      ...prev,
+      assetWeights: {
+        ...prev.assetWeights,
+        [asset]: value
+      }
+    }));
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!onUpdate) {
+      console.error('No update handler provided');
+      return;
+    }
+
     try {
-      setIsLoading(true);
-      setError('');
+      const saveData: ExtendedThresholdSettings = {
+        onTrackThreshold: Number(onTrackThreshold),
+        atRiskThreshold: Number(atRiskThreshold),
+        impactedThreshold: Number(impactedThreshold),
+        projectWeights: {
+          feasibility: projectWeights.feasibility,
+          planning: projectWeights.planning,
+          execution: projectWeights.execution,
+          close: projectWeights.close
+        },
+        assetWeights: {
+          feasibility: assetWeights.feasibility,
+          planning: assetWeights.planning,
+          execution: assetWeights.execution,
+          close: assetWeights.close
+        }
+      };
 
-      // Validate thresholds
-      const validation = validateThresholds(
-        thresholds.onTrackThreshold,
-        thresholds.atRiskThreshold,
-        thresholds.impactedThreshold
-      );
+      console.log('Saving settings:', saveData);
+      const result = await onUpdate(saveData);
+      console.log('Save result:', result);
       
-      if (!validation.isValid) {
-        throw new Error(validation.error);
-      }
-
-      // Update thresholds
-      console.log('Updating thresholds...');
-      const success = updateStatusThresholds(
-        thresholds.onTrackThreshold,
-        thresholds.atRiskThreshold,
-        thresholds.impactedThreshold
-      );
-      
-      if (!success) {
-        throw new Error('Failed to update thresholds');
-      }
-
-      console.log('Thresholds updated successfully');
-      toast.success('Thresholds updated successfully');
-      
-      // Call onUpdate before closing
-      if (onUpdate) {
-        console.log('Calling onUpdate...');
-        onUpdate();
-      }
-
-      // Close the modal
-      console.log('Closing modal...');
-      onClose();
-    } catch (err) {
-      console.error('Error during save:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update thresholds';
-      setError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      console.log('Save operation completed');
-      setIsLoading(false);
+    } catch (error) {
+      console.error('Error saving settings:', error);
     }
   };
 
@@ -326,11 +345,14 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
     );
   };
 
+  const marks = Array.from({ length: 11 }, (_, i: number) => ({ value: i * 10, label: `${i * 10}%` }));
+
+  console.log('AdminConfig rendering with open:', open);
   return (
-    <Dialog 
-      open={open} 
+    <Dialog
+      open={open}
       onClose={onClose}
-      maxWidth="sm"
+      maxWidth="md"
       fullWidth
       PaperProps={{
         sx: {
@@ -385,29 +407,13 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                 </Box>
                 <Slider
                   value={thresholds.onTrackThreshold}
-                  onChange={(_, value) => handleSliderChange('onTrack', value as number)}
+                  onChange={(_, value) => handleThresholdChange('onTrackThreshold', value as number)}
                   valueLabelDisplay="auto"
                   valueLabelFormat={formatValue}
                   min={0}
                   max={100}
                   step={1}
-                  marks={Array.from({ length: 11 }, (_, i) => ({ value: i * 10, label: `${i * 10}%` }))}
-                  sx={{
-                    color: '#10B981',
-                    '& .MuiSlider-thumb': {
-                      '&:hover, &.Mui-focusVisible': {
-                        boxShadow: '0 0 0 8px rgba(16, 185, 129, 0.16)'
-                      }
-                    },
-                    '& .MuiSlider-mark': {
-                      backgroundColor: '#bfdbfe',
-                      height: '8px',
-                      width: '1px',
-                      '&.MuiSlider-markActive': {
-                        backgroundColor: '#fff'
-                      }
-                    }
-                  }}
+                  marks={marks}
                 />
               </Box>
 
@@ -420,7 +426,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                 </Box>
                 <Slider
                   value={thresholds.atRiskThreshold}
-                  onChange={(_, value) => handleSliderChange('atRisk', value as number)}
+                  onChange={(_, value) => handleThresholdChange('atRiskThreshold', value as number)}
                   valueLabelDisplay="auto"
                   valueLabelFormat={formatValue}
                   min={0}
@@ -435,7 +441,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                       }
                     },
                     '& .MuiSlider-mark': {
-                      backgroundColor: '#bfdbfe',
+                      backgroundColor: '#fef3c7',
                       height: '8px',
                       width: '1px',
                       '&.MuiSlider-markActive': {
@@ -455,7 +461,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                 </Box>
                 <Slider
                   value={thresholds.impactedThreshold}
-                  onChange={(_, value) => handleSliderChange('impacted', value as number)}
+                  onChange={(_, value) => handleThresholdChange('impactedThreshold', value as number)}
                   valueLabelDisplay="auto"
                   valueLabelFormat={formatValue}
                   min={0}
@@ -470,7 +476,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                       }
                     },
                     '& .MuiSlider-mark': {
-                      backgroundColor: '#bfdbfe',
+                      backgroundColor: '#fef2f2',
                       height: '8px',
                       width: '1px',
                       '&.MuiSlider-markActive': {
@@ -482,35 +488,110 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
               </Box>
             </Stack>
           </Box>
+
+          {/* Project Phase Weights */}
+          <Box>
+            <Typography variant="h6">Project Phase Weights</Typography>
+            <Box sx={{ px: 2 }}>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Feasibility</Typography>
+                <Slider
+                  value={projectWeights.feasibility}
+                  onChange={(_, value) => handleProjectWeightChange('feasibility', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Planning</Typography>
+                <Slider
+                  value={projectWeights.planning}
+                  onChange={(_, value) => handleProjectWeightChange('planning', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Execution</Typography>
+                <Slider
+                  value={projectWeights.execution}
+                  onChange={(_, value) => handleProjectWeightChange('execution', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Close</Typography>
+                <Slider
+                  value={projectWeights.close}
+                  onChange={(_, value) => handleProjectWeightChange('close', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Typography variant="caption" color={projectTotal === 100 ? 'success.main' : 'error.main'}>
+                Total: {projectTotal}% {projectTotal !== 100 && '(Must equal 100%)'}
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Asset Purchase Phase Weights */}
+          <Box>
+            <Typography variant="h6">Asset Purchase Phase Weights</Typography>
+            <Box sx={{ px: 2 }}>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Feasibility</Typography>
+                <Slider
+                  value={assetWeights.feasibility}
+                  onChange={(_, value) => handleAssetWeightChange('feasibility', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Planning</Typography>
+                <Slider
+                  value={assetWeights.planning}
+                  onChange={(_, value) => handleAssetWeightChange('planning', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Execution</Typography>
+                <Slider
+                  value={assetWeights.execution}
+                  onChange={(_, value) => handleAssetWeightChange('execution', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Box sx={{ mb: 2 }}>
+                <Typography>Close</Typography>
+                <Slider
+                  value={assetWeights.close}
+                  onChange={(_, value) => handleAssetWeightChange('close', value as number)}
+                  valueLabelDisplay="auto"
+                  valueLabelFormat={formatValue}
+                />
+              </Box>
+              <Typography variant="caption" color={assetTotal === 100 ? 'success.main' : 'error.main'}>
+                Total: {assetTotal}% {assetTotal !== 100 && '(Must equal 100%)'}
+              </Typography>
+            </Box>
+          </Box>
         </Stack>
       </DialogContent>
-      
-      <DialogActions sx={{ 
-        borderTop: '1px solid #E5E7EB',
-        px: 3,
-        py: 2
-      }}>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
         <Button 
-          onClick={onClose}
-          sx={{ 
-            color: '#6B7280',
-            '&:hover': {
-              backgroundColor: '#F3F4F6'
-            }
+          onClick={(e) => {
+            alert('Button onClick fired!'); // Debug - remove this later
+            handleSave(e);
           }}
-        >
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSave}
+          type="button"
           variant="contained"
           disabled={isLoading || !!error}
-          sx={{ 
-            backgroundColor: '#1e40af',
-            '&:hover': {
-              backgroundColor: '#1e3a8a'
-            }
-          }}
         >
           {isLoading ? 'Saving...' : 'Save Changes'}
         </Button>
@@ -519,8 +600,11 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
   );
 };
 
-export const AdminConfig: React.FC<AdminConfigProps> = (props) => (
-  <CapExErrorBoundary>
-    <AdminConfigContent {...props} />
-  </CapExErrorBoundary>
-); 
+export const AdminConfig: React.FC<AdminConfigProps> = (props) => {
+  console.log('AdminConfig wrapper rendered with props:', props);
+  return (
+    <CapExErrorBoundary>
+      <AdminConfigContent {...props} />
+    </CapExErrorBoundary>
+  );
+};
