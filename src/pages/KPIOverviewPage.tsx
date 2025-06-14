@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography, Button, Paper, Grid, CircularProgress, Alert } from '@mui/material';
 import { useCapExStore } from '../stores/capexStore';
-import { ProjectModalV2 } from '../components/capex/ProjectModalV2';
-import { ProjectRow } from '../components/capex/ProjectRow';
-import { useCapExActions } from '../stores/capexStore';
+import { ProjectEditModalV2 } from '../components/capex/ProjectModalV2';
+import ProjectRow from '../components/capex/ProjectRow';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { BarChart2, Eye, EyeOff, Settings, AlertTriangle, Plus } from 'lucide-react';
@@ -14,20 +13,23 @@ import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../uti
 import { CapExErrorBoundary } from '../components/ErrorBoundary';
 
 const KPIOverviewPageContent: React.FC = () => {
-  const { projects, adminSettings, modals, loading, errors, actions } = useCapExStore();
-  console.log('KPIOverviewPage - Projects:', projects);
-  console.log('KPIOverviewPage - Loading:', loading);
-  console.log('KPIOverviewPage - Errors:', errors);
+  const projects = useCapExStore(state => state.projects);
+  const adminSettings = useCapExStore(state => state.adminSettings);
+  const modalState = useCapExStore(state => state.modalState);
+  const fetchProjects = useCapExStore(state => state.actions.fetchProjects);
+  const updateProject = useCapExStore(state => state.actions.updateProject);
+  const updateAdminSettings = useCapExStore(state => state.actions.updateAdminSettings);
+  // If you have loading/errors in your store, add selectors here
+  // const loading = useCapExStore(state => state.loading);
+  // const errors = useCapExStore(state => state.errors);
 
-  const { loadProjects, updateProject, updateAdminSettings } = useCapExActions();
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showFinancials, setShowFinancials] = useState(true);
 
   useEffect(() => {
-    console.log('KPIOverviewPage - Calling loadProjects...');
-    loadProjects();
-  }, []);
+    fetchProjects();
+  }, [fetchProjects]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -69,23 +71,24 @@ const KPIOverviewPageContent: React.FC = () => {
     throw new Error('Test Component Error');
   };
 
-  if (loading.projects) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  // If you have loading/errors in your store, use them here
+  // if (loading.projects) {
+  //   return (
+  //     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+  //       <CircularProgress />
+  //     </Box>
+  //   );
+  // }
 
-  if (errors.projects) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error">{String(errors.projects)}</Alert>
-      </Box>
-    );
-  }
+  // if (errors.projects) {
+  //   return (
+  //     <Box sx={{ p: 3 }}>
+  //       <Alert severity="error">{String(errors.projects)}</Alert>
+  //     </Box>
+  //   );
+  // }
 
-  if (!loading.projects && projects.length === 0) {
+  if (projects.length === 0) {
     return (
       <Typography variant="h6" sx={{ textAlign: 'center', color: 'text.secondary', my: 4 }}>
         No projects found
@@ -95,15 +98,16 @@ const KPIOverviewPageContent: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      {loading.projects && (
+      {/* If you have loading/errors, add them here */}
+      {/* {loading.projects && (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
           <CircularProgress />
         </Box>
       )}
       {errors.projects && (
         <Alert severity="error" sx={{ mb: 2 }}>{String(errors.projects)}</Alert>
-      )}
-      {!loading.projects && projects.length === 0 && (
+      )} */}
+      {projects.length === 0 && (
         <Typography variant="h6" sx={{ textAlign: 'center', color: 'text.secondary', my: 4 }}>
           No projects found
         </Typography>
@@ -174,13 +178,14 @@ const KPIOverviewPageContent: React.FC = () => {
         </Grid>
       </Paper>
 
-      <AdminConfig 
-        open={modals.adminConfig.isOpen}
+      {/* If you have modalState/adminConfig, update this as needed */}
+      {/* <AdminConfig 
+        open={modalState.adminConfig?.isOpen}
         onClose={() => {}}
         onUpdate={handleAdminConfigUpdate}
-      />
+      /> */}
 
-      <ProjectModalV2 />
+      <ProjectEditModalV2 />
     </Box>
   );
 };

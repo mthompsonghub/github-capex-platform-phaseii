@@ -1,152 +1,311 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField, Select, MenuItem, FormControl, InputLabel, Box, IconButton, Tabs, Tab } from '@mui/material';
-import { X } from 'lucide-react';
 import { useCapExStore } from '../../stores/capexStore';
-import { Project, PROJECT_TYPES } from './data/capexData';
+import { Project } from './data/capexData';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  TextField,
+  Box,
+  Typography,
+  IconButton,
+  Tabs,
+  Tab,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Alert
+} from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
-const PROJECT_STATUS_OPTIONS = [
-  { value: 'On Track', label: 'On Track' },
-  { value: 'At Risk', label: 'At Risk' },
-  { value: 'Impacted', label: 'Impacted' }
-] as const;
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
 
-type ProjectStatus = typeof PROJECT_STATUS_OPTIONS[number]['value'];
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`simple-tabpanel-${index}`}
+      aria-labelledby={`simple-tab-${index}`}
+      {...other}
+    >
+      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+    </div>
+  );
+}
 
-export const ProjectModalV2: React.FC = () => {
-  const { modals, actions } = useCapExStore();
-  const { editProject } = modals;
-  console.log('ProjectModalV2: editProject.isOpen:', editProject.isOpen, 'editProject.data:', editProject.data);
-  const { updateProject, closeProjectModal } = actions;
+function a11yProps(index: number) {
+  return {
+    id: `simple-tab-${index}`,
+    'aria-controls': `simple-tabpanel-${index}`,
+  };
+}
 
-  const [formData, setFormData] = useState<Partial<Project>>({
-    projectName: '',
-    projectType: PROJECT_TYPES.PROJECTS,
-    projectOwner: '',
-    projectStatus: 'On Track' as ProjectStatus,
-    comments: ''
-  });
-
-  const [tab, setTab] = useState(0);
+export const ProjectEditModalV2: React.FC = () => {
+  const modalState = useCapExStore(state => state.modalState);
+  const updateProject = useCapExStore(state => state.actions.updateProject);
+  const closeProjectModal = useCapExStore(state => state.actions.closeProjectModal);
+  const [activeTab, setActiveTab] = useState(0);
+  const [editedProject, setEditedProject] = useState<Project | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (editProject.data) {
-      setFormData({
-        projectName: editProject.data.projectName,
-        projectType: editProject.data.projectType,
-        projectOwner: editProject.data.projectOwner,
-        projectStatus: editProject.data.projectStatus,
-        comments: editProject.data.comments || ''
+    if (modalState.data) {
+      setEditedProject(modalState.data);
+      setHasUnsavedChanges(false);
+      setValidationErrors({});
+    }
+  }, [modalState.data]);
+
+  const handleClose = () => {
+    if (hasUnsavedChanges) {
+      if (!confirm('You have unsaved changes. Are you sure you want to close?')) {
+        return;
+      }
+    }
+    closeProjectModal();
+    setEditedProject(null);
+    setHasUnsavedChanges(false);
+    setValidationErrors({});
+  };
+
+  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
+    setActiveTab(newValue);
+  };
+
+  const updateField = (field: keyof Project, value: any) => {
+    if (!editedProject) return;
+    
+    setEditedProject({
+      ...editedProject,
+      [field]: value
+    });
+    setHasUnsavedChanges(true);
+    
+    if (validationErrors[field]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
       });
     }
-  }, [editProject.data]);
-
-  const handleInputChange = (field: keyof Project, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
   };
 
-  const handleSave = () => {
-    if (!editProject.data?.id) return;
-
-    updateProject(editProject.data.id, {
-      ...formData,
-      projectName: formData.projectName || '',
-      projectOwner: formData.projectOwner || '',
-      projectType: formData.projectType || PROJECT_TYPES.PROJECTS,
-      projectStatus: formData.projectStatus || 'On Track',
-      comments: formData.comments
-    });
-
-    closeProjectModal();
+  const validateForm = (): boolean => {
+    if (!editedProject) return false;
+    
+    const errors: Record<string, string> = {};
+    
+    if (!editedProject.projectName?.trim()) {
+      errors.projectName = 'Project name is required';
+    }
+    
+    if (!editedProject.projectOwner?.trim()) {
+      errors.projectOwner = 'Project owner is required';
+    }
+    
+    if (editedProject.projectName && editedProject.projectName.length > 100) {
+      errors.projectName = 'Project name must be less than 100 characters';
+    }
+    
+    if (editedProject.projectOwner && editedProject.projectOwner.length > 50) {
+      errors.projectOwner = 'Project owner name must be less than 50 characters';
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
-  if (!editProject.isOpen) return null;
+  const handleSave = async () => {
+    if (!editedProject || !validateForm()) {
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      await updateProject(editedProject.id, {
+        projectName: editedProject.projectName,
+        projectOwner: editedProject.projectOwner,
+        projectStatus: editedProject.projectStatus,
+        startDate: editedProject.startDate,
+        endDate: editedProject.endDate,
+        totalBudget: editedProject.totalBudget,
+        totalActual: editedProject.totalActual,
+        projectType: editedProject.projectType,
+        phases: editedProject.phases
+      });
+      setHasUnsavedChanges(false);
+      closeProjectModal();
+    } catch (error) {
+      console.error('Error saving project:', error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
-  const project = editProject.data;
+  if (!editedProject || !modalState.isOpen) {
+    return null;
+  }
+
+  const renderBasicInfoTab = () => {
+    return (
+      <Box sx={{ p: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          Basic Information
+        </Typography>
+        
+        {Object.keys(validationErrors).length > 0 && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Please fix the validation errors below
+          </Alert>
+        )}
+        
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <TextField
+            fullWidth
+            label="Project Name"
+            value={editedProject.projectName || ''}
+            onChange={(e) => updateField('projectName', e.target.value)}
+            error={!!validationErrors.projectName}
+            helperText={validationErrors.projectName}
+            required
+            variant="outlined"
+            inputProps={{ maxLength: 100 }}
+          />
+
+          <TextField
+            fullWidth
+            label="Project Owner"
+            value={editedProject.projectOwner || ''}
+            onChange={(e) => updateField('projectOwner', e.target.value)}
+            error={!!validationErrors.projectOwner}
+            helperText={validationErrors.projectOwner}
+            required
+            variant="outlined"
+            inputProps={{ maxLength: 50 }}
+            placeholder="Enter name or email"
+          />
+
+          <FormControl fullWidth>
+            <InputLabel>Project Status</InputLabel>
+            <Select
+              value={editedProject.projectStatus || 'On Track'}
+              label="Project Status"
+              disabled={true}
+              sx={{ 
+                '& .MuiSelect-select.Mui-disabled': {
+                  backgroundColor: '#f5f5f5',
+                  color: '#666'
+                }
+              }}
+            >
+              <MenuItem value="On Track">On Track</MenuItem>
+              <MenuItem value="At Risk">At Risk</MenuItem>
+              <MenuItem value="Impacted">Impacted</MenuItem>
+            </Select>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+              Status is automatically calculated based on completion percentages and admin thresholds
+            </Typography>
+          </FormControl>
+
+          <Box sx={{ mt: 2, p: 2, backgroundColor: '#f9f9f9', borderRadius: 1 }}>
+            <Typography variant="subtitle2" gutterBottom>
+              Project Overview
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Project Dates:</strong> {' '}
+              {editedProject.startDate ? new Date(editedProject.startDate).toLocaleDateString() : 'Not set'} - {' '}
+              {editedProject.endDate ? new Date(editedProject.endDate).toLocaleDateString() : 'Not set'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              <strong>Budget:</strong> ${editedProject.totalBudget?.toLocaleString() || '0'} | {' '}
+              <strong>Spent:</strong> ${editedProject.totalActual?.toLocaleString() || '0'}
+            </Typography>
+          </Box>
+        </Box>
+      </Box>
+    );
+  };
 
   return (
-    <Dialog 
-      open={editProject.isOpen} 
-      onClose={closeProjectModal}
-      maxWidth="md"
+    <Dialog
+      open={modalState.isOpen}
+      onClose={handleClose}
+      maxWidth="lg"
       fullWidth
       PaperProps={{
         sx: {
-          borderRadius: 2,
-          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)'
+          minHeight: '80vh',
+          maxHeight: '90vh'
         }
       }}
     >
-      <DialogTitle sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        borderBottom: '1px solid #e5e7eb',
-        padding: '16px 24px'
-      }}>
-        <span className="text-lg font-semibold text-gray-900">
-          {project ? project.projectName : 'Project Details'}
-        </span>
-        <IconButton 
-          onClick={closeProjectModal}
-          size="small"
-          sx={{ 
-            color: 'gray.500',
-            '&:hover': { color: 'gray.700' }
-          }}
-        >
-          <X className="w-5 h-5" />
-        </IconButton>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6">
+            Edit Project: {editedProject.projectName || 'Untitled Project'}
+          </Typography>
+          <IconButton onClick={handleClose} size="small">
+            <CloseIcon />
+          </IconButton>
+        </Box>
       </DialogTitle>
-
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 3, pt: 2 }}>
-        <Tab label="Basic Info" />
-        <Tab label="Status & Milestones" />
-        <Tab label="Financial Details" />
-      </Tabs>
-
-      <DialogContent sx={{ padding: '24px' }}>
-        {tab === 0 && project && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Box><strong>Project Name:</strong> {project.projectName}</Box>
-            <Box><strong>Project Type:</strong> {project.projectType?.name || project.projectType?.id}</Box>
-            <Box><strong>Project Owner:</strong> {project.projectOwner}</Box>
-            <Box><strong>Status:</strong> {project.projectStatus}</Box>
-            <Box><strong>Comments:</strong> {project.comments}</Box>
-            <Box><strong>Start Date:</strong> {project.startDate?.toLocaleDateString?.() || ''}</Box>
-            <Box><strong>End Date:</strong> {project.endDate?.toLocaleDateString?.() || ''}</Box>
+      
+      <DialogContent>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs value={activeTab} onChange={handleTabChange}>
+            <Tab label="Basic Info" {...a11yProps(0)} />
+            <Tab label="Status & Milestones" {...a11yProps(1)} />
+            <Tab label="Financial Details" {...a11yProps(2)} />
+          </Tabs>
+        </Box>
+        
+        <TabPanel value={activeTab} index={0}>
+          {renderBasicInfoTab()}
+        </TabPanel>
+        <TabPanel value={activeTab} index={1}>
+          <Box sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Status & Milestones
+            </Typography>
+            <Typography color="text.secondary">
+              Phase progress tracking and milestone management will be implemented here.
+            </Typography>
           </Box>
-        )}
-        {tab === 1 && project && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {/* <Box><strong>Upcoming Milestone:</strong> {project.upcoming_milestone || 'N/A'}</Box> */}
-            <Box><strong>Overall Completion:</strong> {project.phases ? `${project.phases.feasibility.completion}% Feasibility, ${project.phases.planning.completion}% Planning, ${project.phases.execution.completion}% Execution, ${project.phases.close.completion}% Close` : 'N/A'}</Box>
-            {/* Add more milestone/status info as needed */}
+        </TabPanel>
+        <TabPanel value={activeTab} index={2}>
+          <Box sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Financial Details
+            </Typography>
+            <Typography color="text.secondary">
+              Budget tracking and financial reporting will be implemented here.
+            </Typography>
           </Box>
-        )}
-        {tab === 2 && project && (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Box><strong>Total Budget:</strong> ${project.totalBudget?.toLocaleString?.() || 'N/A'}</Box>
-            <Box><strong>Total Actual:</strong> ${project.totalActual?.toLocaleString?.() || 'N/A'}</Box>
-            {/* Add more financial details as needed */}
-          </Box>
-        )}
+        </TabPanel>
       </DialogContent>
-
-      <DialogActions sx={{ 
-        padding: '16px 24px',
-        borderTop: '1px solid #e5e7eb'
-      }}>
+      
+      <DialogActions sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+        <Button onClick={handleClose} variant="outlined">
+          Cancel
+        </Button>
         <Button 
-          onClick={closeProjectModal}
-          sx={{ 
-            color: 'gray.600',
-            '&:hover': { backgroundColor: 'gray.100' }
-          }}
+          onClick={handleSave} 
+          variant="contained" 
+          color="primary"
+          disabled={isSaving || !hasUnsavedChanges || Object.keys(validationErrors).length > 0}
         >
-          Close
+          {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </DialogActions>
     </Dialog>

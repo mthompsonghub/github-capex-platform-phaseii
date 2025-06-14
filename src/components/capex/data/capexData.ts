@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CapExRecord } from '../../../types/capex';
+import { convertCapExRecordToProject } from '../../../utils/projectUtils';
 
 // TypeScript Interfaces
 export interface SubItem {
@@ -46,6 +47,7 @@ export interface Project {
     close: PhaseProgress;
   };
   comments?: string;
+  upcomingMilestone?: string;
   lastUpdated: Date;
 }
 
@@ -94,6 +96,7 @@ export const ProjectSchema = z.object({
     close: PhaseProgressSchema
   }),
   comments: z.string().optional(),
+  upcomingMilestone: z.string().optional(),
   lastUpdated: z.date()
 });
 
@@ -280,62 +283,118 @@ export const calculatePhaseCompletion = (subItems: SubItem[]): number => {
   return totalValue / validItems.length;
 };
 
-export const calculateOverallCompletion = (project: Project): number => {
-  // Debug logging
-  console.log('Checking project:', {
-    hasPhases: !!project.phases,
-    phaseKeys: project.phases ? Object.keys(project.phases) : 'no phases',
-    hasProjectType: !!project.projectType,
-    hasPhaseWeights: !!project.projectType?.phaseWeights,
-    phaseWeightKeys: project.projectType?.phaseWeights ? Object.keys(project.projectType.phaseWeights) : 'no weights',
-    projectType: project.projectType,
-    phases: project.phases
-  });
-
-  if (!project?.phases || !project?.projectType?.phaseWeights) {
-    console.warn('Invalid project data in calculateOverallCompletion:', project);
+export const calculateOverallCompletion = (
+  phases: Project['phases'], 
+  projectType: ProjectType
+): number => {
+  // Safety check for phases object
+  if (!phases || typeof phases !== 'object') {
+    console.warn('calculateOverallCompletion: phases is null or undefined');
     return 0;
   }
 
-  const { phases, projectType } = project;
-  const { phaseWeights } = projectType;
+  // Safety check for projectType
+  if (!projectType || !projectType.phaseWeights) {
+    console.warn('calculateOverallCompletion: projectType or phaseWeights is null or undefined');
+    return 0;
+  }
 
-  // Ensure all required phase weights exist and are valid numbers
-  const weights = {
-    feasibility: Number(phaseWeights.feasibility) || 0,
-    planning: Number(phaseWeights.planning) || 0,
-    execution: Number(phaseWeights.execution) || 0,
-    close: Number(phaseWeights.close) || 0
-  };
+  try {
+    let totalWeightedCompletion = 0;
+    let totalWeight = 0;
 
-  // Ensure all phase completions exist and are valid numbers
-  const completions = {
-    feasibility: Number(phases.feasibility?.completion) || 0,
-    planning: Number(phases.planning?.completion) || 0,
-    execution: Number(phases.execution?.completion) || 0,
-    close: Number(phases.close?.completion) || 0
-  };
+    // Phase names that should exist
+    const phaseNames: (keyof typeof phases)[] = ['feasibility', 'planning', 'execution', 'close'];
 
-  // Calculate weighted completion for each phase
-  const weightedCompletions = {
-    feasibility: completions.feasibility * (weights.feasibility / 100),
-    planning: completions.planning * (weights.planning / 100),
-    execution: completions.execution * (weights.execution / 100),
-    close: completions.close * (weights.close / 100)
-  };
+    for (const phaseName of phaseNames) {
+      // Safety check for each phase
+      if (!phases[phaseName]) {
+        console.warn(`calculateOverallCompletion: ${phaseName} phase is missing or null`);
+        continue;
+      }
 
-  // Sum up all weighted completions
-  const totalCompletion = Object.values(weightedCompletions).reduce((sum, value) => sum + value, 0);
+      const phase = phases[phaseName];
+      const phaseWeight = projectType.phaseWeights[phaseName];
 
-  // Round to nearest integer
-  return Math.round(totalCompletion);
+      // Safety check for phase weight
+      if (typeof phaseWeight !== 'number' || isNaN(phaseWeight)) {
+        console.warn(`calculateOverallCompletion: ${phaseName} weight is invalid:`, phaseWeight);
+        continue;
+      }
+
+      // Safety check for phase completion
+      let phaseCompletion = 0;
+      if (typeof phase.completion === 'number' && !isNaN(phase.completion)) {
+        phaseCompletion = phase.completion;
+      } else {
+        console.warn(`calculateOverallCompletion: ${phaseName} completion is invalid:`, phase.completion);
+        // Try to calculate from sub-items if completion is missing
+        if (phase.subItems && Array.isArray(phase.subItems)) {
+          phaseCompletion = calculatePhaseCompletionFromSubItems(phase.subItems);
+        }
+      }
+
+      totalWeightedCompletion += (phaseCompletion * phaseWeight);
+      totalWeight += phaseWeight;
+    }
+
+    // Avoid division by zero
+    if (totalWeight === 0) {
+      console.warn('calculateOverallCompletion: total weight is 0');
+      return 0;
+    }
+
+    const result = totalWeightedCompletion / totalWeight;
+    
+    // Ensure result is a valid number between 0 and 100
+    if (isNaN(result)) {
+      console.warn('calculateOverallCompletion: result is NaN');
+      return 0;
+    }
+
+    return Math.max(0, Math.min(100, result));
+
+  } catch (error) {
+    console.error('calculateOverallCompletion: Unexpected error:', error);
+    return 0;
+  }
 };
 
+// Helper function to calculate phase completion from sub-items
+const calculatePhaseCompletionFromSubItems = (subItems: any[]): number => {
+  if (!Array.isArray(subItems) || subItems.length === 0) {
+    return 0;
+  }
+
+  const validItems = subItems.filter(item => 
+    item && 
+    typeof item.value === 'number' && 
+    !item.isNA && 
+    !isNaN(item.value)
+  );
+
+  if (validItems.length === 0) {
+    return 0;
+  }
+
+  const total = validItems.reduce((sum, item) => sum + item.value, 0);
+  return total / validItems.length;
+};
+
+// Add calculateOverallCompletionForBoth
 export const calculateOverallCompletionForBoth = (project: Project | CapExRecord): number => {
-  if ('phases' in project) {
-    return calculateOverallCompletion(project);
-  } else {
-    return project.actual_project_completion;
+  try {
+    if ('phases' in project) {
+      // This is a Project type
+      return calculateOverallCompletion(project.phases, project.projectType);
+    } else {
+      // This is a CapExRecord type - convert to Project first
+      const convertedProject = convertCapExRecordToProject(project);
+      return calculateOverallCompletion(convertedProject.phases, convertedProject.projectType);
+    }
+  } catch (error) {
+    console.error('calculateOverallCompletionForBoth error:', error);
+    return 0;
   }
 };
 

@@ -123,10 +123,24 @@ function App() {
   }, [fetchInitialData]);
 
   useEffect(() => {
+    const checkUserRole = async () => {
+      try {
+        // Use the store's fetchUserRole action
+        const fetchUserRole = useCapExStore.getState().actions.fetchUserRole;
+        const role = await fetchUserRole();
+        const setIsAdmin = useCapExStore.getState().actions.setIsAdmin;
+        setIsAdmin(role === 'admin');
+      } catch (error) {
+        console.error('Error checking user role:', error);
+        const setIsAdmin = useCapExStore.getState().actions.setIsAdmin;
+        setIsAdmin(false);
+      }
+    };
+
     if (session) {
-      actions.initializePermissions();
+      checkUserRole();
     }
-  }, [session, actions]);
+  }, [session]);
 
   if (isLoading) {
     return (

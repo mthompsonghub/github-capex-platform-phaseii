@@ -1,422 +1,192 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import { AdminSettings, ModalState } from '../types/capex';
-import { Project } from '../components/capex/data/capexData';
+import { AdminSettings, ModalState, CapExRecord } from '../types/capex';
+import { Project, PROJECT_TYPES } from '../components/capex/data/capexData';
 import { supabase } from '../lib/supabase';
 
-interface CapExState {
-  // Data
+interface CapExStore {
   projects: Project[];
-  adminSettings: AdminSettings;
-  
-  // Permissions
-  permissions: {
-    canEditBudgets: boolean;
-    canEditDates: boolean;
-    isAdmin: boolean;
-  };
-  
-  // UI State
-  modals: {
-    editProject: ModalState<Project>;
-    adminConfig: ModalState<AdminSettings>;
-  };
-  
-  // Loading States
-  loading: {
-    projects: boolean;
-    adminSettings: boolean;
-  };
-  
-  // Error States
-  errors: {
-    projects: Error | null;
-    adminSettings: Error | null;
-  };
-  
-  // Actions
+  adminSettings: AdminSettings | null;
+  modalState: ModalState<Project | string>;
+  isAdmin: boolean;
   actions: {
-    // Project Actions
-    loadProjects: () => Promise<void>;
-    updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
-    
-    // Admin Actions
-    loadAdminSettings: () => Promise<void>;
+    fetchProjects: () => Promise<any[]>;
+    updateProject: (project: Project) => Promise<void>;
+    fetchAdminSettings: () => Promise<AdminSettings | null>;
     updateAdminSettings: (settings: Partial<AdminSettings>) => Promise<void>;
-    
-    // Modal Actions
+    fetchUserRole: () => Promise<string>;
     openProjectModal: (project: Project) => void;
     closeProjectModal: () => void;
+    setIsAdmin: (value: boolean) => void;
     openAdminModal: () => void;
-    closeAdminModal: () => void;
-    
-    // Error Actions
-    clearError: (type: 'projects' | 'adminSettings') => void;
-
-    // Initialize permissions based on user role
-    initializePermissions: () => Promise<void>;
   };
 }
 
-// Separate API layer
-const capexAPI = {
-  async fetchProjects(): Promise<any[]> {
-    console.log('Store - loadProjects called');
-    const { data, error } = await supabase
-      .from('capex_projects')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    // Debug logging
-    console.log('Raw Supabase data:', JSON.stringify(data, null, 2));
-    console.log('Data structure check:', {
-      isArray: Array.isArray(data),
-      length: data?.length,
-      firstItem: data?.[0] ? {
-        hasId: 'id' in data[0],
-        hasProjectName: 'project_name' in data[0],
-        hasProjectType: 'project_type' in data[0],
-        projectTypeValue: data[0].project_type,
-        hasPhases: 'phases' in data[0],
-        keys: Object.keys(data?.[0] || {})
-      } : 'no data'
-    });
-    
-    if (error) {
-      console.error('Store - Supabase query error:', error);
-      throw error;
-    }
-    console.log('Store - fetched data:', data);
-    return data;
-  },
-  
-  async updateProject(id: string, updates: Partial<Project>): Promise<void> {
-    const { error } = await supabase
-      .from('capex_projects')
-      .update(updates)
-      .eq('id', id);
-      
-    if (error) throw error;
-  },
-  
-  async fetchAdminSettings(): Promise<AdminSettings> {
-    const { data, error } = await supabase
-      .from('capex_system_settings')
-      .select('*')
-      .single();
-      
-    if (error) throw error;
-    return data;
-  },
-  
-  async updateAdminSettings(settings: Partial<AdminSettings>): Promise<void> {
-    const { error } = await supabase
-      .from('capex_system_settings')
-      .update(settings)
-      .eq('id', 1);
-      
-    if (error) throw error;
-  },
-
-  async fetchUserRole(): Promise<{ role: string }> {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error) throw error;
-    
-    const { data, error: roleError } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user?.id)
-      .single();
-      
-    if (roleError) throw roleError;
-    return data;
-  }
-};
-
-// Helper function to initialize permissions based on role
-const initializePermissions = (role: string) => {
-  switch (role.toLowerCase()) {
-    case 'admin':
-      return {
-        canEditBudgets: true,
-        canEditDates: true,
-        isAdmin: true
-      };
-    case 'manager':
-      return {
-        canEditBudgets: true,
-        canEditDates: true,
-        isAdmin: false
-      };
-    case 'viewer':
-      return {
-        canEditBudgets: false,
-        canEditDates: false,
-        isAdmin: false
-      };
-    default:
-      return {
-        canEditBudgets: false,
-        canEditDates: false,
-        isAdmin: false
-      };
-  }
-};
-
-export const useCapExStore = create<CapExState>()(
+// Create the store
+const useStore = create<CapExStore>()(
   devtools(
     persist(
       immer((set, get) => ({
-        // Initial State
         projects: [],
-        adminSettings: {
-          onTrackThreshold: 90,
-          atRiskThreshold: 80,
-          showFinancials: true
+        adminSettings: null,
+        modalState: {
+          isOpen: false,
+          data: null
         },
-        
-        permissions: {
-          canEditBudgets: false,
-          canEditDates: false,
-          isAdmin: false
-        },
-        
-        modals: {
-          editProject: { isOpen: false, data: null },
-          adminConfig: { isOpen: false, data: null }
-        },
-        
-        loading: {
-          projects: false,
-          adminSettings: false
-        },
-        
-        errors: {
-          projects: null,
-          adminSettings: null
-        },
-        
+        isAdmin: false,
         actions: {
-          // Project Actions with Error Handling
-          loadProjects: async () => {
-            console.log('Store - loadProjects action started');
-            set((state) => {
-              state.loading.projects = true;
-              state.errors.projects = null;
-            });
-            
+          async fetchProjects() {
             try {
-              const projects = await capexAPI.fetchProjects();
-              console.log('Store - Projects loaded successfully:', projects);
-              // Transform to match Project type
-              const transformedData = (projects || []).map(item => {
-                const isProject = item.project_type === 'projects';
-                const phaseWeights = {
-                  feasibility: isProject ? 15 : 0,
-                  planning: isProject ? 35 : 45,
-                  execution: isProject ? 45 : 50,
-                  close: 5
-                };
+              const { data, error } = await supabase
+                .from('capex_projects')
+                .select('*');
 
-                // Debug the raw item
-                console.log('Transforming item:', {
-                  id: item.id,
-                  project_type: item.project_type,
-                  phase_completions: {
-                    feasibility: item.feasibility_completion,
-                    planning: item.planning_completion,
-                    execution: item.execution_completion,
-                    close: item.close_completion
-                  }
+              if (error) throw error;
+
+              if (data) {
+                const transformedProjects = data.map(transformDbProjectToProject);
+                set((state) => {
+                  state.projects = transformedProjects;
                 });
-
-                return {
-                  id: item.id,
-                  projectName: item.project_name || 'Unnamed Project',
-                  projectOwner: item.project_owner || 'Unknown',
-                  projectStatus: item.project_status || 'On Track',
-                  startDate: new Date(item.start_date || new Date()),
-                  endDate: new Date(item.end_date || new Date()),
-                  projectType: {
-                    id: item.project_type || 'projects',
-                    name: isProject ? 'Projects' : 'Asset Purchases',
-                    phaseWeights
-                  },
-                  totalBudget: item.total_budget || 0,
-                  totalActual: item.total_actual || 0,
-                  phases: {
-                    feasibility: {
-                      id: 'feasibility',
-                      name: 'Feasibility',
-                      weight: phaseWeights.feasibility,
-                      completion: 75,
-                      subItems: item.feasibility_subitems || []
-                    },
-                    planning: {
-                      id: 'planning',
-                      name: 'Planning',
-                      weight: phaseWeights.planning,
-                      completion: 50,
-                      subItems: item.planning_subitems || []
-                    },
-                    execution: {
-                      id: 'execution',
-                      name: 'Execution',
-                      weight: phaseWeights.execution,
-                      completion: 25,
-                      subItems: item.execution_subitems || []
-                    },
-                    close: {
-                      id: 'close',
-                      name: 'Close',
-                      weight: phaseWeights.close,
-                      completion: 10,
-                      subItems: item.close_subitems || []
-                    }
-                  },
-                  comments: item.description || '',
-                  lastUpdated: new Date(item.updated_at || new Date()),
-                  yearlyBudget: item.yearly_budget || 0,
-                  yearlyActual: item.yearly_actual || 0,
-                  upcomingMilestone: item.upcoming_milestone || '',
-                  sesAssetNumber: item.ses_asset_number || ''
-                };
-              });
-              console.log('Transformed data:', JSON.stringify(transformedData, null, 2));
-              set((state) => {
-                state.projects = transformedData;
-                state.loading.projects = false;
-              });
-            } catch (error) {
-              console.error('Store - Failed to load projects:', error);
-              set((state) => {
-                state.errors.projects = error as Error;
-                state.loading.projects = false;
-              });
-            }
-          },
-          
-          updateProject: async (id, updates) => {
-            // Optimistic update
-            set((state) => {
-              const index = state.projects.findIndex((p: Project) => p.id === id);
-              if (index !== -1) {
-                state.projects[index] = { ...state.projects[index], ...updates };
               }
-            });
-            
-            try {
-              await capexAPI.updateProject(id, updates);
+
+              return data || [];
             } catch (error) {
-              // Revert on error
-              get().actions.loadProjects();
+              console.error('Error fetching projects:', error);
+              return [];
+            }
+          },
+
+          async updateProject(project: Project) {
+            console.log('Updating project:', project.projectName);
+            console.log('Project ID:', project.id);
+            try {
+              // Only update the basic fields that we know work
+              const dbUpdate = {
+                project_name: project.projectName,
+                project_owner: project.projectOwner,
+                updated_at: new Date().toISOString()
+              };
+
+              console.log('Database update payload:', dbUpdate);
+
+              // Simple update without returning data first
+              const { error } = await supabase
+                .from('capex_projects')
+                .update(dbUpdate)
+                .eq('id', project.id);
+
+              if (error) {
+                console.error('Database update error:', error);
+                throw error;
+              }
+
+              console.log('Update successful, updating local store...');
+
+              // Update the local store directly with the new values
+              set((state) => {
+                const projectIndex = state.projects.findIndex(p => p.id === project.id);
+                if (projectIndex !== -1) {
+                  state.projects[projectIndex] = {
+                    ...state.projects[projectIndex],
+                    projectName: project.projectName,
+                    projectOwner: project.projectOwner
+                  };
+                  console.log('Local store updated');
+                }
+              });
+
+            } catch (error) {
+              console.error('Error updating project:', error);
               throw error;
             }
           },
-          
-          // Admin Settings Actions
-          loadAdminSettings: async () => {
-            set((state) => {
-              state.loading.adminSettings = true;
-              state.errors.adminSettings = null;
-            });
-            
+
+          async fetchAdminSettings() {
             try {
-              const settings = await capexAPI.fetchAdminSettings();
-              set((state) => {
-                state.adminSettings = settings;
-                state.loading.adminSettings = false;
-              });
+              const { data, error } = await supabase
+                .from('capex_system_settings')
+                .select('*')
+                .single();
+
+              if (error) throw error;
+
+              if (data) {
+                set((state) => {
+                  state.adminSettings = data;
+                });
+              }
+
+              return data;
             } catch (error) {
-              set((state) => {
-                state.errors.adminSettings = error as Error;
-                state.loading.adminSettings = false;
-              });
+              console.error('Error fetching admin settings:', error);
+              return null;
             }
           },
-          
-          updateAdminSettings: async (settings) => {
-            // Optimistic update
-            const previousSettings = get().adminSettings;
-            set((state) => {
-              state.adminSettings = { ...state.adminSettings, ...settings };
-            });
-            
+
+          async updateAdminSettings(settings: Partial<AdminSettings>) {
             try {
-              await capexAPI.updateAdminSettings(settings);
+              const { data, error } = await supabase
+                .from('capex_system_settings')
+                .update(settings)
+                .select()
+                .single();
+
+              if (error) throw error;
+
+              if (data) {
+                set((state) => {
+                  state.adminSettings = data;
+                });
+              }
             } catch (error) {
-              // Revert on error
-              set((state) => {
-                state.adminSettings = previousSettings;
-              });
+              console.error('Error updating admin settings:', error);
               throw error;
             }
           },
-          
-          // Modal Management
-          openProjectModal: (project) => {
+
+          async fetchUserRole() {
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return 'user';
+
+              const { data, error } = await supabase
+                .from('user_roles')
+                .select('role')
+                .eq('user_id', user.id)
+                .single();
+
+              if (error) throw error;
+              return data?.role || 'user';
+            } catch (error) {
+              console.error('Error fetching user role:', error);
+              return 'user';
+            }
+          },
+
+          openProjectModal(project: Project) {
             set((state) => {
-              state.modals.editProject = {
+              state.modalState = {
                 isOpen: true,
                 data: project
               };
             });
           },
-          
-          closeProjectModal: () => {
+
+          closeProjectModal() {
             set((state) => {
-              state.modals.editProject = {
+              state.modalState = {
                 isOpen: false,
                 data: null
               };
-            });
-          },
-          
-          openAdminModal: () => {
-            set((state) => {
-              state.modals.adminConfig = {
-                isOpen: true,
-                data: state.adminSettings
-              };
-            });
-          },
-          
-          closeAdminModal: () => {
-            set((state) => {
-              state.modals.adminConfig = {
-                isOpen: false,
-                data: null
-              };
-            });
-          },
-          
-          // Error Management
-          clearError: (type) => {
-            set((state) => {
-              state.errors[type] = null;
             });
           },
 
-          // Initialize permissions based on user role
-          initializePermissions: async () => {
-            try {
-              const { role } = await capexAPI.fetchUserRole();
-              set((state) => {
-                state.permissions = initializePermissions(role);
-              });
-            } catch (error) {
-              console.error('Failed to initialize permissions:', error);
-              // Set default permissions on error
-              set((state) => {
-                state.permissions = {
-                  canEditBudgets: false,
-                  canEditDates: false,
-                  isAdmin: false
-                };
-              });
-            }
-          }
+          setIsAdmin: (value: boolean) => set(state => { state.isAdmin = value; }),
+          openAdminModal: () => set(state => {
+            state.modalState = { isOpen: true, data: 'admin' };
+          }),
         }
       })),
       {
@@ -429,12 +199,80 @@ export const useCapExStore = create<CapExState>()(
   )
 );
 
-// Selector hooks
-export const useProjects = () => useCapExStore((state) => state.projects);
-export const useAdminSettings = () => useCapExStore((state) => state.adminSettings);
-export const useProjectModal = () => useCapExStore((state) => state.modals.editProject);
-export const useAdminModal = () => useCapExStore((state) => state.modals.adminConfig);
-export const useCapExActions = () => useCapExStore((state) => state.actions);
-export const useCapExLoading = () => useCapExStore((state) => state.loading);
-export const useCapExErrors = () => useCapExStore((state) => state.errors);
-export const useCapExPermissions = () => useCapExStore((state) => state.permissions); 
+// Helper function to transform database project to Project type
+function transformDbProjectToProject(dbProject: any): Project {
+  // Create default phases structure since it's not stored in DB yet
+  const phases = {
+    feasibility: {
+      id: 'feasibility',
+      name: 'Feasibility',
+      weight: dbProject.project_type === 'projects' ? 15 : 0,
+      completion: 0,
+      subItems: [
+        { id: 'risk_assessment', name: 'Risk Assessment', value: 0, isNA: false },
+        { id: 'project_charter', name: 'Project Charter', value: 0, isNA: false }
+      ]
+    },
+    planning: {
+      id: 'planning',
+      name: 'Planning', 
+      weight: dbProject.project_type === 'projects' ? 35 : 45,
+      completion: 0,
+      subItems: [
+        { id: 'rfq_package', name: 'RFQ Package', value: 0, isNA: false },
+        { id: 'validation_strategy', name: 'Validation Strategy', value: 0, isNA: false },
+        { id: 'financial_forecast', name: 'Financial Forecast', value: 0, isNA: false },
+        { id: 'vendor_solicitation', name: 'Vendor Solicitation', value: 0, isNA: false },
+        { id: 'gantt_chart', name: 'Gantt Chart', value: 0, isNA: false },
+        { id: 'ses_asset_number', name: 'SES Asset Number Approval', value: 0, isNA: false }
+      ]
+    },
+    execution: {
+      id: 'execution',
+      name: 'Execution',
+      weight: dbProject.project_type === 'projects' ? 45 : 50,
+      completion: 0,
+      subItems: [
+        { id: 'po_submission', name: 'PO Submission', value: 0, isNA: false },
+        { id: 'equipment_design', name: 'Equipment Design', value: 0, isNA: false },
+        { id: 'equipment_build', name: 'Equipment Build', value: 0, isNA: false },
+        { id: 'project_documentation', name: 'Project Documentation/SOP', value: 0, isNA: false },
+        { id: 'demo_install', name: 'Demo/Install', value: 0, isNA: false },
+        { id: 'validation', name: 'Validation', value: 0, isNA: false },
+        { id: 'equipment_turnover', name: 'Equipment Turnover/Training', value: 0, isNA: false },
+        { id: 'go_live', name: 'Go-Live', value: 0, isNA: false }
+      ]
+    },
+    close: {
+      id: 'close',
+      name: 'Close',
+      weight: 5,
+      completion: 0,
+      subItems: [
+        { id: 'po_closure', name: 'PO Closure', value: 0, isNA: false },
+        { id: 'project_turnover', name: 'Project Turnover', value: 0, isNA: false }
+      ]
+    }
+  };
+
+  const projectType = dbProject.project_type === 'projects' ? PROJECT_TYPES.PROJECTS : PROJECT_TYPES.ASSET_PURCHASES;
+
+  return {
+    id: dbProject.id,
+    projectName: dbProject.project_name,
+    projectOwner: dbProject.project_owner,
+    startDate: dbProject.start_date,
+    endDate: dbProject.end_date,
+    projectType: projectType,
+    totalBudget: dbProject.total_budget,
+    totalActual: dbProject.total_actual,
+    projectStatus: dbProject.project_status,
+    phases: phases,
+    upcomingMilestone: dbProject.upcoming_milestone,
+    comments: dbProject.project_comments,
+    lastUpdated: new Date(dbProject.updated_at)
+  };
+}
+
+// Export the store
+export const useCapExStore = useStore; 

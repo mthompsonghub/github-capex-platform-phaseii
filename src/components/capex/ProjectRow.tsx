@@ -20,102 +20,55 @@ interface ProjectRowProps {
   showFinancials?: boolean;
 }
 
-const getStatusColor = (status: string | undefined): string => {
-  if (!status) return '#6B7280'; // Gray (default)
+function isProject(p: Project | CapExRecord): p is Project {
+  return 'phases' in p;
+}
+
+export default function ProjectRow({ 
+  project, 
+  showFinancials = false 
+}: ProjectRowProps) {
+  const isProj = isProject(project);
+  const projectName = isProj ? project.projectName : (project as CapExRecord).project_name || 'Unnamed Project';
+  const projectOwner = isProj ? project.projectOwner : (project as CapExRecord).project_owner || 'Unassigned';
+  const projectStatus = isProj ? project.projectStatus : (project as CapExRecord).project_status || 'Unknown';
+  const budget = isProj ? project.totalBudget : (project as CapExRecord).total_budget || 0;
+  const actual = isProj ? project.totalActual : (project as CapExRecord).total_actual || 0;
+
+  console.log('ProjectRow rendering with project:', projectName);
   
-  switch (status.toLowerCase()) {
-    case 'on track':
-      return '#10B981'; // Green
-    case 'at risk':
-      return '#F59E0B'; // Yellow
-    case 'impacted':
-      return '#EF4444'; // Red
-    default:
-      return '#6B7280'; // Gray
-  }
-};
-
-const ProgressBar: React.FC<{ value: number; label?: string }> = ({ value, label }) => (
-  <Box sx={{ width: '100%', mb: label ? 0.5 : 0 }}>
-    {label && (
-      <Typography variant="body2" color="#374151" sx={{ mb: 0.5 }}>
-        {label}
-      </Typography>
-    )}
-    <Box sx={{ 
-      display: 'flex', 
-      alignItems: 'center',
-      backgroundColor: '#F3F4F6',
-      borderRadius: '10px',
-      padding: '3px',
-      border: '1px solid #E5E7EB'
-    }}>
-      <Box sx={{ 
-        width: '100%',
-        mr: 1,
-        position: 'relative',
-        height: '8px',
-        borderRadius: '6px',
-        overflow: 'hidden',
-        backgroundColor: '#E5E7EB'
-      }}>
-        <Box sx={{
-          position: 'absolute',
-          width: `${value}%`,
-          height: '100%',
-          backgroundColor: '#1e40af',
-          transition: 'width 0.4s ease-in-out'
-        }} />
-      </Box>
-      <Typography variant="body2" sx={{ 
-        minWidth: '45px',
-        textAlign: 'right',
-        color: '#1e40af',
-        fontWeight: 600
-      }}>
-        {Math.round(value)}%
-      </Typography>
-    </Box>
-  </Box>
-);
-
-export const ProjectRow: React.FC<ProjectRowProps> = ({ project, showFinancials = false }) => {
-  // Type guard for Project
-  const isProject = (p: Project | CapExRecord): p is Project => {
-    return 'phases' in p;
-  };
-
-  console.log('ProjectRow received project:', project);
-  if (isProject(project)) {
-    console.log('Project phases:', project.phases);
-    console.log('Feasibility phase:', project.phases.feasibility);
+  // Safety check for project data
+  if (!project) {
+    console.error('ProjectRow: project is null or undefined');
+    return <div>Error: No project data</div>;
   }
 
-  if (!isProject(project)) {
-    console.error('Project missing phases:', project);
+  // Type guard check
+  if (!isProj) {
+    console.error('ProjectRow: project missing phases structure:', project);
     return <div>Error: Project data incomplete</div>;
   }
 
   const { actions } = useCapExStore();
 
   const handleClick = () => {
-    console.log('ProjectRow handleClick fired for project:', project);
+    console.log('ProjectRow handleClick fired for project:', projectName);
     try {
       actions.openProjectModal(project);
-      console.log('Called actions.openProjectModal with:', project);
     } catch (error) {
       console.error('Error opening project modal:', error);
       toast.error('Failed to open project details');
     }
   };
 
-  const overallCompletion = calculateOverallCompletionForBoth(project);
-
-  const projectName = project.projectName;
-  const projectOwner = project.projectOwner;
-  const projectStatus = project.projectStatus;
-  const budget = project.totalBudget;
-  const actual = project.totalActual;
+  // Safe calculation with error handling
+  let overallCompletion = 0;
+  try {
+    overallCompletion = Math.round(calculateOverallCompletionForBoth(project));
+  } catch (error) {
+    console.error('Error calculating completion for project:', projectName, error);
+    overallCompletion = 0;
+  }
 
   return (
     <Card 
@@ -141,10 +94,10 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({ project, showFinancials 
             {showFinancials && (
               <Box sx={{ mt: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  Budget: ${budget?.toLocaleString() || 'N/A'}
+                  Budget: ${budget.toLocaleString()}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Actual: ${actual?.toLocaleString() || 'N/A'}
+                  Actual: ${actual.toLocaleString()}
                 </Typography>
               </Box>
             )}
@@ -175,4 +128,4 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({ project, showFinancials 
       </CardContent>
     </Card>
   );
-}; 
+} 
