@@ -12,6 +12,7 @@ import { ResourceMatrixApp } from './components/ResourceMatrixApp';
 import { KPIOverviewPage } from './pages/KPIOverviewPage';
 import { UserManagement } from './components/UserManagement';
 import { Session } from '@supabase/supabase-js';
+import { useCapExStore } from './stores/capexStore';
 
 console.log('App starting...');
 
@@ -19,6 +20,7 @@ function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { fetchInitialData } = useDataStore();
+  const { actions } = useCapExStore();
   const initialDataLoaded = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout>();
 
@@ -119,6 +121,12 @@ function App() {
       }
     };
   }, [fetchInitialData]);
+
+  useEffect(() => {
+    if (session) {
+      actions.initializePermissions();
+    }
+  }, [session, actions]);
 
   if (isLoading) {
     return (

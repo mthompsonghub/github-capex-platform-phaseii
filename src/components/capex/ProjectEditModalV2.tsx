@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useCapExStore } from './stores/capexStore';
+import { useCapExStore } from '../../stores/capexStore';
 import { Project } from './data/capexData';
 import { CapExRecord } from '../../types/capex';
 import {

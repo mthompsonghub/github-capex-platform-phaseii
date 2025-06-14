@@ -54,57 +54,62 @@ const capexAPI = {
       
     if (error) throw error;
     
-    return data.map((record: any) => ({
-      id: record.id,
-      projectName: record.project_name,
-      projectOwner: record.project_owner,
-      startDate: new Date(record.start_date),
-      endDate: new Date(record.end_date),
-      projectType: {
-        id: record.project_type,
-        name: record.project_type === 'project' ? 'Projects' : 'Asset Purchases',
-        phaseWeights: {
-          feasibility: record.project_type === 'project' ? 15 : 0,
-          planning: record.project_type === 'project' ? 35 : 45,
-          execution: record.project_type === 'project' ? 45 : 50,
-          close: 5
-        }
-      },
-      totalBudget: record.total_budget,
-      totalActual: record.total_actual,
-      projectStatus: record.project_status,
-      phases: {
-        feasibility: {
-          id: 'feasibility',
-          name: 'Feasibility',
-          weight: record.project_type === 'project' ? 15 : 0,
-          subItems: [],
-          completion: record.feasibility_completion || 0
+    return data.map((record: any) => {
+      const isProject = record.project_type === 'projects';
+      const phaseWeights = {
+        feasibility: isProject ? 15 : 0,
+        planning: isProject ? 35 : 45,
+        execution: isProject ? 45 : 50,
+        close: 5
+      };
+
+      return {
+        id: record.id,
+        projectName: record.project_name,
+        projectOwner: record.project_owner,
+        startDate: new Date(record.start_date),
+        endDate: new Date(record.end_date),
+        projectType: {
+          id: record.project_type,
+          name: isProject ? 'Projects' : 'Asset Purchases',
+          phaseWeights
         },
-        planning: {
-          id: 'planning',
-          name: 'Planning',
-          weight: record.project_type === 'project' ? 35 : 45,
-          subItems: [],
-          completion: record.planning_completion || 0
+        totalBudget: record.total_budget || 0,
+        totalActual: record.total_actual || 0,
+        projectStatus: record.project_status || 'On Track',
+        phases: {
+          feasibility: {
+            id: 'feasibility',
+            name: 'Feasibility',
+            weight: phaseWeights.feasibility,
+            subItems: [],
+            completion: record.feasibility_completion || 0
+          },
+          planning: {
+            id: 'planning',
+            name: 'Planning',
+            weight: phaseWeights.planning,
+            subItems: [],
+            completion: record.planning_completion || 0
+          },
+          execution: {
+            id: 'execution',
+            name: 'Execution',
+            weight: phaseWeights.execution,
+            subItems: [],
+            completion: record.execution_completion || 0
+          },
+          close: {
+            id: 'close',
+            name: 'Close',
+            weight: phaseWeights.close,
+            subItems: [],
+            completion: record.close_completion || 0
+          }
         },
-        execution: {
-          id: 'execution',
-          name: 'Execution',
-          weight: record.project_type === 'project' ? 45 : 50,
-          subItems: [],
-          completion: record.execution_completion || 0
-        },
-        close: {
-          id: 'close',
-          name: 'Close',
-          weight: 5,
-          subItems: [],
-          completion: record.close_completion || 0
-        }
-      },
-      lastUpdated: new Date(record.updated_at)
-    }));
+        lastUpdated: new Date(record.updated_at)
+      };
+    });
   },
   
   async fetchAdminSettings(): Promise<ThresholdSettings> {

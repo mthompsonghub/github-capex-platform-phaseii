@@ -22,6 +22,7 @@ const KPIOverviewPageContent: React.FC = () => {
   const { loadProjects, updateProject, updateAdminSettings } = useCapExActions();
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showFinancials, setShowFinancials] = useState(true);
 
   useEffect(() => {
     console.log('KPIOverviewPage - Calling loadProjects...');
@@ -52,7 +53,7 @@ const KPIOverviewPageContent: React.FC = () => {
   };
 
   const handleToggleFinancials = () => {
-    updateAdminSettings({ showFinancials: !adminSettings.showFinancials });
+    setShowFinancials((prev) => !prev);
   };
 
   const handleAdminConfigUpdate = () => {
@@ -123,7 +124,7 @@ const KPIOverviewPageContent: React.FC = () => {
                 '&:hover': { borderColor: 'gray.400' }
               }}
             >
-              {adminSettings.showFinancials ? 'Hide Financials' : 'Show Financials'}
+              {showFinancials ? 'Hide Financials' : 'Show Financials'}
             </Button>
           )}
           <Button
@@ -166,7 +167,7 @@ const KPIOverviewPageContent: React.FC = () => {
             <Grid item xs={12} key={project.id}>
               <ProjectRow
                 project={project}
-                showFinancials={adminSettings.showFinancials}
+                showFinancials={showFinancials}
               />
             </Grid>
           ))}

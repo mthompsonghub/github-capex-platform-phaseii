@@ -36,7 +36,7 @@ import { CapExRecord, Phase } from '../../types/capex';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../../utils/projectUtils';
 import { roles } from '../../lib/supabase';
 import toast from 'react-hot-toast';
-import { useCapExStore } from './stores/capexStore';
+import { useCapExStore } from '../../stores/capexStore';
 
 type ProjectStatus = 'On Track' | 'At Risk' | 'Impacted';
 

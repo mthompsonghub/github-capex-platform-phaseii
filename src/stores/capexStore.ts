@@ -67,7 +67,22 @@ const capexAPI = {
       .from('capex_projects')
       .select('*')
       .order('created_at', { ascending: false });
-    console.log('Raw data from Supabase:', JSON.stringify(data, null, 2));
+    
+    // Debug logging
+    console.log('Raw Supabase data:', JSON.stringify(data, null, 2));
+    console.log('Data structure check:', {
+      isArray: Array.isArray(data),
+      length: data?.length,
+      firstItem: data?.[0] ? {
+        hasId: 'id' in data[0],
+        hasProjectName: 'project_name' in data[0],
+        hasProjectType: 'project_type' in data[0],
+        projectTypeValue: data[0].project_type,
+        hasPhases: 'phases' in data[0],
+        keys: Object.keys(data?.[0] || {})
+      } : 'no data'
+    });
+    
     if (error) {
       console.error('Store - Supabase query error:', error);
       throw error;
@@ -195,52 +210,79 @@ export const useCapExStore = create<CapExState>()(
               const projects = await capexAPI.fetchProjects();
               console.log('Store - Projects loaded successfully:', projects);
               // Transform to match Project type
-              const transformedData = (projects || []).map(item => ({
-                id: item.id,
-                projectName: item.project_name || 'Unnamed Project',
-                projectType: item.project_type || 'projects',
-                projectOwner: item.project_owner || 'Unknown',
-                projectStatus: item.project_status || 'on_track',
-                startDate: item.start_date || '',
-                endDate: item.end_date || '',
-                totalBudget: item.total_budget || 0,
-                totalActual: item.total_actual || 0,
-                phases: {
-                  feasibility: {
-                    id: 'feasibility',
-                    name: 'Feasibility',
-                    weight: 15,
-                    completion: 0,
-                    subItems: []
-                  },
-                  planning: {
-                    id: 'planning',
-                    name: 'Planning',
-                    weight: 35,
-                    completion: 0,
-                    subItems: []
-                  },
-                  execution: {
-                    id: 'execution',
-                    name: 'Execution',
-                    weight: 45,
-                    completion: 0,
-                    subItems: []
-                  },
-                  close: {
-                    id: 'close',
-                    name: 'Close',
-                    weight: 5,
-                    completion: 0,
-                    subItems: []
+              const transformedData = (projects || []).map(item => {
+                const isProject = item.project_type === 'projects';
+                const phaseWeights = {
+                  feasibility: isProject ? 15 : 0,
+                  planning: isProject ? 35 : 45,
+                  execution: isProject ? 45 : 50,
+                  close: 5
+                };
+
+                // Debug the raw item
+                console.log('Transforming item:', {
+                  id: item.id,
+                  project_type: item.project_type,
+                  phase_completions: {
+                    feasibility: item.feasibility_completion,
+                    planning: item.planning_completion,
+                    execution: item.execution_completion,
+                    close: item.close_completion
                   }
-                },
-                comments: item.description || '',
-                lastUpdated: item.updated_at || new Date().toISOString(),
-                yearlyBudget: item.total_budget || 0,
-                upcomingMilestone: '',
-                sesAssetNumber: ''
-              }));
+                });
+
+                return {
+                  id: item.id,
+                  projectName: item.project_name || 'Unnamed Project',
+                  projectOwner: item.project_owner || 'Unknown',
+                  projectStatus: item.project_status || 'On Track',
+                  startDate: new Date(item.start_date || new Date()),
+                  endDate: new Date(item.end_date || new Date()),
+                  projectType: {
+                    id: item.project_type || 'projects',
+                    name: isProject ? 'Projects' : 'Asset Purchases',
+                    phaseWeights
+                  },
+                  totalBudget: item.total_budget || 0,
+                  totalActual: item.total_actual || 0,
+                  phases: {
+                    feasibility: {
+                      id: 'feasibility',
+                      name: 'Feasibility',
+                      weight: phaseWeights.feasibility,
+                      completion: 75,
+                      subItems: item.feasibility_subitems || []
+                    },
+                    planning: {
+                      id: 'planning',
+                      name: 'Planning',
+                      weight: phaseWeights.planning,
+                      completion: 50,
+                      subItems: item.planning_subitems || []
+                    },
+                    execution: {
+                      id: 'execution',
+                      name: 'Execution',
+                      weight: phaseWeights.execution,
+                      completion: 25,
+                      subItems: item.execution_subitems || []
+                    },
+                    close: {
+                      id: 'close',
+                      name: 'Close',
+                      weight: phaseWeights.close,
+                      completion: 10,
+                      subItems: item.close_subitems || []
+                    }
+                  },
+                  comments: item.description || '',
+                  lastUpdated: new Date(item.updated_at || new Date()),
+                  yearlyBudget: item.yearly_budget || 0,
+                  yearlyActual: item.yearly_actual || 0,
+                  upcomingMilestone: item.upcoming_milestone || '',
+                  sesAssetNumber: item.ses_asset_number || ''
+                };
+              });
               console.log('Transformed data:', JSON.stringify(transformedData, null, 2));
               set((state) => {
                 state.projects = transformedData;

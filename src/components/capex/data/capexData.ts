@@ -281,15 +281,54 @@ export const calculatePhaseCompletion = (subItems: SubItem[]): number => {
 };
 
 export const calculateOverallCompletion = (project: Project): number => {
+  // Debug logging
+  console.log('Checking project:', {
+    hasPhases: !!project.phases,
+    phaseKeys: project.phases ? Object.keys(project.phases) : 'no phases',
+    hasProjectType: !!project.projectType,
+    hasPhaseWeights: !!project.projectType?.phaseWeights,
+    phaseWeightKeys: project.projectType?.phaseWeights ? Object.keys(project.projectType.phaseWeights) : 'no weights',
+    projectType: project.projectType,
+    phases: project.phases
+  });
+
+  if (!project?.phases || !project?.projectType?.phaseWeights) {
+    console.warn('Invalid project data in calculateOverallCompletion:', project);
+    return 0;
+  }
+
   const { phases, projectType } = project;
   const { phaseWeights } = projectType;
 
-  const feasibilityCompletion = phases.feasibility.completion * (phaseWeights.feasibility / 100);
-  const planningCompletion = phases.planning.completion * (phaseWeights.planning / 100);
-  const executionCompletion = phases.execution.completion * (phaseWeights.execution / 100);
-  const closeCompletion = phases.close.completion * (phaseWeights.close / 100);
+  // Ensure all required phase weights exist and are valid numbers
+  const weights = {
+    feasibility: Number(phaseWeights.feasibility) || 0,
+    planning: Number(phaseWeights.planning) || 0,
+    execution: Number(phaseWeights.execution) || 0,
+    close: Number(phaseWeights.close) || 0
+  };
 
-  return Math.round(feasibilityCompletion + planningCompletion + executionCompletion + closeCompletion);
+  // Ensure all phase completions exist and are valid numbers
+  const completions = {
+    feasibility: Number(phases.feasibility?.completion) || 0,
+    planning: Number(phases.planning?.completion) || 0,
+    execution: Number(phases.execution?.completion) || 0,
+    close: Number(phases.close?.completion) || 0
+  };
+
+  // Calculate weighted completion for each phase
+  const weightedCompletions = {
+    feasibility: completions.feasibility * (weights.feasibility / 100),
+    planning: completions.planning * (weights.planning / 100),
+    execution: completions.execution * (weights.execution / 100),
+    close: completions.close * (weights.close / 100)
+  };
+
+  // Sum up all weighted completions
+  const totalCompletion = Object.values(weightedCompletions).reduce((sum, value) => sum + value, 0);
+
+  // Round to nearest integer
+  return Math.round(totalCompletion);
 };
 
 export const calculateOverallCompletionForBoth = (project: Project | CapExRecord): number => {

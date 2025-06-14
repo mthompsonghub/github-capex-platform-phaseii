@@ -12,7 +12,7 @@ import {
   calculateOverallCompletionForBoth
 } from './data/capexData';
 import { CapExRecord } from '../../types/capex';
-import { useCapExStore } from './stores/capexStore';
+import { useCapExStore } from '../../stores/capexStore';
 import toast from 'react-hot-toast';
 
 interface ProjectRowProps {
@@ -96,12 +96,13 @@ export const ProjectRow: React.FC<ProjectRowProps> = ({ project, showFinancials 
     return <div>Error: Project data incomplete</div>;
   }
 
-  const { openProjectModal } = useCapExStore();
+  const { actions } = useCapExStore();
 
   const handleClick = () => {
-    console.log('Opening project modal for:', project);
+    console.log('ProjectRow handleClick fired for project:', project);
     try {
-      openProjectModal(project);
+      actions.openProjectModal(project);
+      console.log('Called actions.openProjectModal with:', project);
     } catch (error) {
       console.error('Error opening project modal:', error);
       toast.error('Failed to open project details');
