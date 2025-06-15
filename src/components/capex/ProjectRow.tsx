@@ -49,7 +49,9 @@ export default function ProjectRow({
     return <div>Error: Project data incomplete</div>;
   }
 
-  const { actions } = useCapExStore();
+  const actions = useCapExStore(state => state.actions);
+  const modalState = useCapExStore(state => state.modalState);
+  const adminSettings = useCapExStore(state => state.adminSettings);
 
   const handleClick = () => {
     console.log('ProjectRow handleClick fired for project:', projectName);

@@ -4,22 +4,30 @@ import { immer } from 'zustand/middleware/immer';
 import { AdminSettings, ModalState, CapExRecord } from '../types/capex';
 import { Project, PROJECT_TYPES, ProjectType } from '../components/capex/data/capexData';
 import { supabase } from '../lib/supabase';
+import { ExtendedThresholdSettings } from '../components/capex/admin/AdminConfig';
 
 interface CapExStore {
   projects: Project[];
   adminSettings: AdminSettings | null;
   modalState: ModalState<Project | string>;
   isAdmin: boolean;
+  phaseWeights: {
+    projects: { feasibility: number; planning: number; execution: number; close: number };
+    asset_purchases: { feasibility: number; planning: number; execution: number; close: number };
+  } | null;
   actions: {
     fetchProjects: () => Promise<any[]>;
     updateProject: (project: Project) => Promise<void>;
     fetchAdminSettings: () => Promise<AdminSettings | null>;
-    updateAdminSettings: (settings: any) => Promise<{ success: boolean; message: string }>;
+    updateAdminSettings: (settings: ExtendedThresholdSettings) => Promise<void>;
     fetchUserRole: () => Promise<string>;
     openProjectModal: (project: Project) => void;
     closeProjectModal: () => void;
     setIsAdmin: (value: boolean) => void;
     openAdminModal: () => void;
+    fetchPhaseWeights: () => Promise<any>;
+    updatePhaseWeights: (projectType: 'projects' | 'asset_purchases', weights: any) => Promise<{ success: boolean }>;
+    getPhaseWeights: (projectType: string | ProjectType) => any;
   };
 }
 
@@ -35,6 +43,7 @@ const useStore = create<CapExStore>()(
           data: null
         },
         isAdmin: false,
+        phaseWeights: null,
         actions: {
           async fetchProjects() {
             try {
@@ -60,7 +69,12 @@ const useStore = create<CapExStore>()(
 
           async updateProject(project: Project) {
             console.log('Updating project:', project.projectName);
-            console.log('Project ID:', project.id);
+            console.log('🚨 TEST LOG - If you see this, we found the right function!');
+            console.log('Financial fields:', {
+              sesNumber: project.sesNumber,
+              upcomingMilestone: project.upcomingMilestone,
+              financialNotes: project.financialNotes
+            });
             try {
               // Transform project data for database update
               const dbPayload = {
@@ -103,23 +117,28 @@ const useStore = create<CapExStore>()(
                     subItems: project.phases.close.subItems
                   }
                 }),
-                updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString(),
+                // Add financial fields
+                ses_number: project.sesNumber,
+                upcoming_milestone: project.upcomingMilestone,
+                financial_notes: project.financialNotes
               };
 
-              console.log('Database update payload:', dbPayload);
+              console.log('🔍 About to call Supabase update with:', dbPayload);
+              console.log('🔍 Project ID:', project.id);
 
-              // Simple update without returning data first
-              const { error } = await supabase
+              const { data, error } = await supabase
                 .from('capex_projects')
                 .update(dbPayload)
                 .eq('id', project.id);
 
+              console.log('🔍 Supabase response - data:', data);
+              console.log('🔍 Supabase response - error:', error);
+
               if (error) {
-                console.error('Database update error:', error);
+                console.error('🚨 Supabase update failed:', error);
                 throw error;
               }
-
-              console.log('Update successful, updating local store...');
 
               // Update the local store directly with the new values
               set((state) => {
@@ -150,27 +169,47 @@ const useStore = create<CapExStore>()(
 
           async fetchAdminSettings() {
             try {
+              // Get threshold settings only (not all settings)
               const { data, error } = await supabase
                 .from('capex_system_settings')
-                .select('*')
-                .single();
+                .select('setting_key, setting_value')
+                .in('setting_key', ['on_track_threshold', 'at_risk_threshold', 'impacted_threshold', 'show_financials']);
 
               if (error) throw error;
 
+              // Build admin settings object from multiple rows
+              const adminSettings: AdminSettings = {
+                onTrackThreshold: 90,
+                atRiskThreshold: 80,
+                impactedThreshold: 0,
+                showFinancials: true
+              };
+
               if (data) {
-                set((state) => {
-                  state.adminSettings = data;
+                data.forEach(row => {
+                  if (row.setting_key === 'on_track_threshold') {
+                    adminSettings.onTrackThreshold = row.setting_value;
+                  } else if (row.setting_key === 'at_risk_threshold') {
+                    adminSettings.atRiskThreshold = row.setting_value;
+                  } else if (row.setting_key === 'impacted_threshold') {
+                    adminSettings.impactedThreshold = row.setting_value;
+                  } else if (row.setting_key === 'show_financials') {
+                    adminSettings.showFinancials = row.setting_value;
+                  }
                 });
               }
 
-              return data;
+              set((state) => {
+                state.adminSettings = adminSettings;
+              });
+              return adminSettings;
             } catch (error) {
               console.error('Error fetching admin settings:', error);
               return null;
             }
           },
 
-          async updateAdminSettings(settings: any) {
+          async updateAdminSettings(settings: ExtendedThresholdSettings) {
             console.log('updateAdminSettings called with:', settings);
             
             try {
@@ -213,7 +252,6 @@ const useStore = create<CapExStore>()(
               }
               
               console.log('All thresholds saved successfully');
-              return { success: true, message: 'Thresholds saved' };
               
             } catch (error) {
               console.error('Error updating admin settings:', error);
@@ -259,15 +297,105 @@ const useStore = create<CapExStore>()(
           },
 
           setIsAdmin: (value: boolean) => set(state => { state.isAdmin = value; }),
-          openAdminModal: () => set(state => {
-            state.modalState = { isOpen: true, data: 'admin' };
-          }),
+          openAdminModal: () => {
+            console.log('Opening admin modal');
+            set(state => {
+              state.modalState = { 
+                isOpen: true, 
+                data: 'admin'
+              };
+            });
+          },
+
+          async fetchPhaseWeights() {
+            try {
+              const { data, error } = await supabase
+                .from('capex_system_settings')
+                .select('setting_key, setting_value')
+                .in('setting_key', ['project_phase_weights', 'asset_phase_weights']);
+              
+              if (error) throw error;
+              
+              const weights = {
+                projects: { feasibility: 15, planning: 35, execution: 45, close: 5 },
+                asset_purchases: { feasibility: 0, planning: 45, execution: 50, close: 5 }
+              };
+              
+              data?.forEach(item => {
+                if (item.setting_key === 'project_phase_weights') {
+                  weights.projects = item.setting_value;
+                } else if (item.setting_key === 'asset_phase_weights') {
+                  weights.asset_purchases = item.setting_value;
+                }
+              });
+              
+              set({ phaseWeights: weights });
+              return weights;
+            } catch (error) {
+              console.error('Error fetching phase weights:', error);
+              return null;
+            }
+          },
+
+          async updatePhaseWeights(projectType: 'projects' | 'asset_purchases', weights: any) {
+            try {
+              const settingKey = projectType === 'projects' ? 'project_phase_weights' : 'asset_phase_weights';
+              
+              const { error } = await supabase
+                .from('capex_system_settings')
+                .upsert({
+                  setting_key: settingKey,
+                  setting_value: weights,
+                  updated_at: new Date().toISOString()
+                }, { onConflict: 'setting_key' });
+              
+              if (error) throw error;
+              
+              // Update local state
+              set(state => ({
+                phaseWeights: {
+                  ...state.phaseWeights,
+                  [projectType]: weights
+                }
+              }));
+              
+              return { success: true };
+            } catch (error) {
+              console.error('Error updating phase weights:', error);
+              throw error;
+            }
+          },
+
+          getPhaseWeights: (projectType: string | ProjectType) => {
+            const state = get();
+            if (!state.phaseWeights) return { feasibility: 15, planning: 35, execution: 45, close: 5 };
+            
+            // Convert projectType to string if it's an object
+            const projectTypeStr = typeof projectType === 'string' ? projectType : projectType.name;
+            
+            // Handle all variations of asset purchase project types
+            const isAssetPurchase = 
+              projectTypeStr === 'asset_purchase' || 
+              projectTypeStr === 'asset_purchases' ||
+              projectTypeStr === 'ASSET_PURCHASES' ||
+              projectTypeStr.toLowerCase().includes('asset');
+            
+            const weights = isAssetPurchase ? 
+              state.phaseWeights.asset_purchases : 
+              state.phaseWeights.projects;
+            
+            // Add logging for debugging
+            console.log('getPhaseWeights called with projectType:', projectType);
+            console.log('Returning weights:', weights);
+            return weights;
+          }
         }
       })),
       {
         name: 'capex-store',
         partialize: (state) => ({
-          adminSettings: state.adminSettings
+          adminSettings: state.adminSettings,
+          phaseWeights: state.phaseWeights
         })
       }
     )

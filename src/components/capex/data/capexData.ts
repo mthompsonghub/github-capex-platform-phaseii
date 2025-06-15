@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CapExRecord } from '../../../types/capex';
-import { convertCapExRecordToProject } from '../../../utils/projectUtils';
+import { useCapExStore } from '../../../stores/capexStore';
 
 // TypeScript Interfaces
 export interface SubItem {
@@ -17,6 +17,68 @@ export interface PhaseProgress {
   weight: number;
   subItems: SubItem[];
   completion: number;
+}
+
+// Detailed sub-item interfaces
+export interface DetailedSubItem {
+  name: string;
+  value: number; // 0-100 percentage
+  isNA: boolean;
+  target?: number; // target percentage (optional)
+}
+
+// Base interface for detailed phases
+export interface DetailedPhase {
+  id: string;
+  name: string;
+  weight: number;
+  completion: number;
+}
+
+export interface FeasibilityPhase extends DetailedPhase {
+  subItems: {
+    riskAssessment: DetailedSubItem;
+    projectCharter: DetailedSubItem;
+  };
+}
+
+export interface PlanningPhase extends DetailedPhase {
+  subItems: {
+    rfqPackage: DetailedSubItem;
+    validationStrategy: DetailedSubItem;
+    financialForecast: DetailedSubItem;
+    vendorSolicitation: DetailedSubItem;
+    ganttChart: DetailedSubItem;
+    sesAssetNumberApproval: DetailedSubItem;
+  };
+}
+
+export interface ExecutionPhase extends DetailedPhase {
+  subItems: {
+    poSubmission: DetailedSubItem;
+    equipmentDesign: DetailedSubItem;
+    equipmentBuild: DetailedSubItem;
+    projectDocumentation: DetailedSubItem;
+    demoInstall: DetailedSubItem;
+    validation: DetailedSubItem;
+    equipmentTurnover: DetailedSubItem;
+    goLive: DetailedSubItem;
+  };
+}
+
+export interface ClosePhase extends DetailedPhase {
+  subItems: {
+    poClosure: DetailedSubItem;
+    projectTurnover: DetailedSubItem;
+  };
+}
+
+// Updated Project phases interface
+export interface DetailedPhases {
+  feasibility: FeasibilityPhase;
+  planning: PlanningPhase;
+  execution: ExecutionPhase;
+  close: ClosePhase;
 }
 
 export interface ProjectType {
@@ -41,14 +103,17 @@ export interface Project {
   totalActual: number;
   projectStatus: 'On Track' | 'At Risk' | 'Impacted';
   phases: {
-    feasibility: PhaseProgress;
-    planning: PhaseProgress;
-    execution: PhaseProgress;
-    close: PhaseProgress;
+    feasibility: FeasibilityPhase;
+    planning: PlanningPhase;
+    execution: ExecutionPhase;
+    close: ClosePhase;
   };
   comments?: string;
-  upcomingMilestone?: string;
   lastUpdated: Date;
+  sesNumber?: string;
+  upcomingMilestone?: string;
+  milestoneDueDate?: Date;
+  financialNotes?: string;
 }
 
 // Zod Schema for Runtime Type Validation
@@ -60,12 +125,56 @@ export const SubItemSchema = z.object({
   description: z.string().optional()
 });
 
-export const PhaseProgressSchema = z.object({
+export const DetailedSubItemSchema = z.object({
+  name: z.string(),
+  value: z.number().min(0).max(100),
+  isNA: z.boolean(),
+  target: z.number().min(0).max(100).optional()
+});
+
+export const DetailedPhaseSchema = z.object({
   id: z.string(),
   name: z.string(),
   weight: z.number().min(0).max(100),
-  subItems: z.array(SubItemSchema),
   completion: z.number().min(0).max(100)
+});
+
+export const FeasibilityPhaseSchema = DetailedPhaseSchema.extend({
+  subItems: z.object({
+    riskAssessment: DetailedSubItemSchema,
+    projectCharter: DetailedSubItemSchema
+  })
+});
+
+export const PlanningPhaseSchema = DetailedPhaseSchema.extend({
+  subItems: z.object({
+    rfqPackage: DetailedSubItemSchema,
+    validationStrategy: DetailedSubItemSchema,
+    financialForecast: DetailedSubItemSchema,
+    vendorSolicitation: DetailedSubItemSchema,
+    ganttChart: DetailedSubItemSchema,
+    sesAssetNumberApproval: DetailedSubItemSchema
+  })
+});
+
+export const ExecutionPhaseSchema = DetailedPhaseSchema.extend({
+  subItems: z.object({
+    poSubmission: DetailedSubItemSchema,
+    equipmentDesign: DetailedSubItemSchema,
+    equipmentBuild: DetailedSubItemSchema,
+    projectDocumentation: DetailedSubItemSchema,
+    demoInstall: DetailedSubItemSchema,
+    validation: DetailedSubItemSchema,
+    equipmentTurnover: DetailedSubItemSchema,
+    goLive: DetailedSubItemSchema
+  })
+});
+
+export const ClosePhaseSchema = DetailedPhaseSchema.extend({
+  subItems: z.object({
+    poClosure: DetailedSubItemSchema,
+    projectTurnover: DetailedSubItemSchema
+  })
 });
 
 export const ProjectTypeSchema = z.object({
@@ -90,14 +199,17 @@ export const ProjectSchema = z.object({
   totalActual: z.number().min(0),
   projectStatus: z.enum(['On Track', 'At Risk', 'Impacted']),
   phases: z.object({
-    feasibility: PhaseProgressSchema,
-    planning: PhaseProgressSchema,
-    execution: PhaseProgressSchema,
-    close: PhaseProgressSchema
+    feasibility: FeasibilityPhaseSchema,
+    planning: PlanningPhaseSchema,
+    execution: ExecutionPhaseSchema,
+    close: ClosePhaseSchema
   }),
   comments: z.string().optional(),
+  lastUpdated: z.date(),
+  sesNumber: z.string().optional(),
   upcomingMilestone: z.string().optional(),
-  lastUpdated: z.date()
+  milestoneDueDate: z.date().optional(),
+  financialNotes: z.string().optional()
 });
 
 // Constants
@@ -124,104 +236,33 @@ export const PROJECT_TYPES: Record<string, ProjectType> = {
   }
 } as const;
 
+// Define sub-items for each phase type
 export const PHASE_SUB_ITEMS = {
   feasibility: [
-    { 
-      id: 'risk_assessment', 
-      name: 'Risk Assessment',
-      description: 'Evaluate project risks and mitigation strategies'
-    },
-    { 
-      id: 'project_charter', 
-      name: 'Project Charter',
-      description: 'Define project scope, objectives, and success criteria'
-    }
+    { id: 'riskAssessment', name: 'Risk Assessment' },
+    { id: 'projectCharter', name: 'Project Charter' }
   ],
   planning: [
-    { 
-      id: 'rfq_package', 
-      name: 'RFQ Package',
-      description: 'Prepare and finalize Request for Quotation documentation'
-    },
-    { 
-      id: 'validation_strategy', 
-      name: 'Validation Strategy',
-      description: 'Define validation approach and requirements'
-    },
-    { 
-      id: 'financial_forecast', 
-      name: 'Financial Forecast',
-      description: 'Project cost estimates and financial planning'
-    },
-    { 
-      id: 'vendor_solicitation', 
-      name: 'Vendor Solicitation',
-      description: 'Identify and evaluate potential vendors'
-    },
-    { 
-      id: 'gantt_chart', 
-      name: 'Gantt Chart',
-      description: 'Detailed project timeline and dependencies'
-    },
-    { 
-      id: 'ses_asset_number', 
-      name: 'SES Asset Number Approval',
-      description: 'Obtain required asset number approvals'
-    }
+    { id: 'rfqPackage', name: 'RFQ Package' },
+    { id: 'validationStrategy', name: 'Validation Strategy' },
+    { id: 'financialForecast', name: 'Financial Forecast' },
+    { id: 'vendorSolicitation', name: 'Vendor Solicitation' },
+    { id: 'ganttChart', name: 'Gantt Chart' },
+    { id: 'sesAssetNumberApproval', name: 'SES Asset Number Approval' }
   ],
   execution: [
-    { 
-      id: 'po_submission', 
-      name: 'PO Submission',
-      description: 'Submit and process Purchase Orders'
-    },
-    { 
-      id: 'equipment_design', 
-      name: 'Equipment Design',
-      description: 'Finalize equipment specifications and design'
-    },
-    { 
-      id: 'equipment_build', 
-      name: 'Equipment Build',
-      description: 'Equipment manufacturing and assembly'
-    },
-    { 
-      id: 'project_documentation', 
-      name: 'Project Documentation/SOP',
-      description: 'Create Standard Operating Procedures and documentation'
-    },
-    { 
-      id: 'demo_install', 
-      name: 'Demo/Install',
-      description: 'Equipment installation and demonstration'
-    },
-    { 
-      id: 'validation', 
-      name: 'Validation',
-      description: 'Validate equipment performance and functionality'
-    },
-    { 
-      id: 'equipment_turnover', 
-      name: 'Equipment Turnover/Training',
-      description: 'Train operators and hand over equipment'
-    },
-    { 
-      id: 'go_live', 
-      name: 'Go-Live',
-      description: 'Begin production operations'
-    }
+    { id: 'poSubmission', name: 'PO Submission' },
+    { id: 'equipmentDesign', name: 'Equipment Design' },
+    { id: 'equipmentBuild', name: 'Equipment Build' },
+    { id: 'projectDocumentation', name: 'Project Documentation/SOP' },
+    { id: 'demoInstall', name: 'Demo/Install' },
+    { id: 'validation', name: 'Validation' },
+    { id: 'equipmentTurnover', name: 'Equipment Turnover/Training' },
+    { id: 'goLive', name: 'Go-Live' }
   ],
   close: [
-    { 
-      id: 'po_closure', 
-      name: 'PO Closure',
-      description: 'Complete all purchase order requirements'
-    },
-    { 
-      id: 'project_turnover', 
-      name: 'Project Turnover',
-      description: 'Final project handover and documentation'
-    }
+    { id: 'poClosure', name: 'PO Closure' },
+    { id: 'projectTurnover', name: 'Project Turnover' }
   ]
 } as const;
 
@@ -275,98 +316,13 @@ export const updateStatusThresholds = (
 };
 
 // Helper Functions
-export const calculatePhaseCompletion = (subItems: SubItem[]): number => {
-  const validItems = subItems.filter(item => !item.isNA);
-  if (validItems.length === 0) return 0;
-
-  const totalValue = validItems.reduce((sum, item) => sum + item.value, 0);
-  return totalValue / validItems.length;
-};
-
-export const calculateOverallCompletion = (
-  phases: Project['phases'], 
-  projectType: ProjectType
-): number => {
-  // Safety check for phases object
-  if (!phases || typeof phases !== 'object') {
-    console.warn('calculateOverallCompletion: phases is null or undefined');
+export const calculatePhaseCompletion = (phase: FeasibilityPhase | PlanningPhase | ExecutionPhase | ClosePhase): number => {
+  if (!phase || !phase.subItems) {
     return 0;
   }
 
-  // Safety check for projectType
-  if (!projectType || !projectType.phaseWeights) {
-    console.warn('calculateOverallCompletion: projectType or phaseWeights is null or undefined');
-    return 0;
-  }
-
-  try {
-    let totalWeightedCompletion = 0;
-    let totalWeight = 0;
-
-    // Phase names that should exist
-    const phaseNames: (keyof typeof phases)[] = ['feasibility', 'planning', 'execution', 'close'];
-
-    for (const phaseName of phaseNames) {
-      // Safety check for each phase
-      if (!phases[phaseName]) {
-        console.warn(`calculateOverallCompletion: ${phaseName} phase is missing or null`);
-        continue;
-      }
-
-      const phase = phases[phaseName];
-      const phaseWeight = projectType.phaseWeights[phaseName];
-
-      // Safety check for phase weight
-      if (typeof phaseWeight !== 'number' || isNaN(phaseWeight)) {
-        console.warn(`calculateOverallCompletion: ${phaseName} weight is invalid:`, phaseWeight);
-        continue;
-      }
-
-      // Safety check for phase completion
-      let phaseCompletion = 0;
-      if (typeof phase.completion === 'number' && !isNaN(phase.completion)) {
-        phaseCompletion = phase.completion;
-      } else {
-        console.warn(`calculateOverallCompletion: ${phaseName} completion is invalid:`, phase.completion);
-        // Try to calculate from sub-items if completion is missing
-        if (phase.subItems && Array.isArray(phase.subItems)) {
-          phaseCompletion = calculatePhaseCompletionFromSubItems(phase.subItems);
-        }
-      }
-
-      totalWeightedCompletion += (phaseCompletion * phaseWeight);
-      totalWeight += phaseWeight;
-    }
-
-    // Avoid division by zero
-    if (totalWeight === 0) {
-      console.warn('calculateOverallCompletion: total weight is 0');
-      return 0;
-    }
-
-    const result = totalWeightedCompletion / totalWeight;
-    
-    // Ensure result is a valid number between 0 and 100
-    if (isNaN(result)) {
-      console.warn('calculateOverallCompletion: result is NaN');
-      return 0;
-    }
-
-    return Math.max(0, Math.min(100, result));
-
-  } catch (error) {
-    console.error('calculateOverallCompletion: Unexpected error:', error);
-    return 0;
-  }
-};
-
-// Helper function to calculate phase completion from sub-items
-const calculatePhaseCompletionFromSubItems = (subItems: any[]): number => {
-  if (!Array.isArray(subItems) || subItems.length === 0) {
-    return 0;
-  }
-
-  const validItems = subItems.filter(item => 
+  const subItemsArray = Object.values(phase.subItems);
+  const validItems = subItemsArray.filter(item => 
     item && 
     typeof item.value === 'number' && 
     !item.isNA && 
@@ -381,20 +337,46 @@ const calculatePhaseCompletionFromSubItems = (subItems: any[]): number => {
   return total / validItems.length;
 };
 
-// Add calculateOverallCompletionForBoth
-export const calculateOverallCompletionForBoth = (project: Project | CapExRecord): number => {
+export const calculateOverallCompletion = (phases: any, projectType: string): number => {
   try {
-    if ('phases' in project) {
-      // This is a Project type
-      return calculateOverallCompletion(project.phases, project.projectType);
-    } else {
-      // This is a CapExRecord type - convert to Project first
-      const convertedProject = convertCapExRecordToProject(project);
-      return calculateOverallCompletion(convertedProject.phases, convertedProject.projectType);
+    // Get dynamic weights from store
+    const store = useCapExStore.getState();
+    const weights = store.actions.getPhaseWeights(projectType);
+    
+    console.log('Using dynamic weights for', projectType, ':', weights);
+    
+    let totalWeightedCompletion = 0;
+    let totalWeight = 0;
+    
+    const phaseNames = ['feasibility', 'planning', 'execution', 'close'];
+    
+    for (const phaseName of phaseNames) {
+      if (!phases[phaseName]) continue;
+      
+      const phase = phases[phaseName];
+      const phaseWeight = weights[phaseName] || 0;
+      const phaseCompletion = phase.completion || 0;
+      
+      totalWeightedCompletion += (phaseCompletion * phaseWeight);
+      totalWeight += phaseWeight;
     }
+    
+    if (totalWeight === 0) return 0;
+    
+    const result = totalWeightedCompletion / totalWeight;
+    return Math.max(0, Math.min(100, Math.round(result)));
+    
   } catch (error) {
-    console.error('calculateOverallCompletionForBoth error:', error);
+    console.error('Error calculating completion:', error);
     return 0;
+  }
+};
+
+export const calculateOverallCompletionForBoth = (project: Project | CapExRecord): number => {
+  if ('phases' in project) {
+    return calculateOverallCompletion(project.phases, project.projectType.id);
+  } else {
+    return project.actual_project_completion;
   }
 };
 
@@ -411,42 +393,211 @@ export const determineProjectStatus = (
   return 'Impacted';
 };
 
+const createBasePhase = (id: string, name: string, weight: number) => ({
+  id,
+  name,
+  weight,
+  completion: 0
+});
+
+export const createEmptyFeasibilityPhase = (
+  subItems: typeof PHASE_SUB_ITEMS.feasibility
+): FeasibilityPhase => {
+  const basePhase = createBasePhase('feasibility', 'Feasibility', 15);
+  return {
+    ...basePhase,
+    subItems: {
+      riskAssessment: {
+        name: subItems[0].name,
+        value: 0,
+        isNA: false
+      },
+      projectCharter: {
+        name: subItems[1].name,
+        value: 0,
+        isNA: false
+      }
+    }
+  };
+};
+
+export const createEmptyPlanningPhase = (
+  subItems: typeof PHASE_SUB_ITEMS.planning
+): PlanningPhase => {
+  const basePhase = createBasePhase('planning', 'Planning', 35);
+  return {
+    ...basePhase,
+    subItems: {
+      rfqPackage: {
+        name: subItems[0].name,
+        value: 0,
+        isNA: false
+      },
+      validationStrategy: {
+        name: subItems[1].name,
+        value: 0,
+        isNA: false
+      },
+      financialForecast: {
+        name: subItems[2].name,
+        value: 0,
+        isNA: false
+      },
+      vendorSolicitation: {
+        name: subItems[3].name,
+        value: 0,
+        isNA: false
+      },
+      ganttChart: {
+        name: subItems[4].name,
+        value: 0,
+        isNA: false
+      },
+      sesAssetNumberApproval: {
+        name: subItems[5].name,
+        value: 0,
+        isNA: false
+      }
+    }
+  };
+};
+
+export const createEmptyExecutionPhase = (
+  subItems: typeof PHASE_SUB_ITEMS.execution
+): ExecutionPhase => {
+  const basePhase = createBasePhase('execution', 'Execution', 45);
+  return {
+    ...basePhase,
+    subItems: {
+      poSubmission: {
+        name: subItems[0].name,
+        value: 0,
+        isNA: false
+      },
+      equipmentDesign: {
+        name: subItems[1].name,
+        value: 0,
+        isNA: false
+      },
+      equipmentBuild: {
+        name: subItems[2].name,
+        value: 0,
+        isNA: false
+      },
+      projectDocumentation: {
+        name: subItems[3].name,
+        value: 0,
+        isNA: false
+      },
+      demoInstall: {
+        name: subItems[4].name,
+        value: 0,
+        isNA: false
+      },
+      validation: {
+        name: subItems[5].name,
+        value: 0,
+        isNA: false
+      },
+      equipmentTurnover: {
+        name: subItems[6].name,
+        value: 0,
+        isNA: false
+      },
+      goLive: {
+        name: subItems[7].name,
+        value: 0,
+        isNA: false
+      }
+    }
+  };
+};
+
+export const createEmptyClosePhase = (
+  subItems: typeof PHASE_SUB_ITEMS.close
+): ClosePhase => {
+  const basePhase = createBasePhase('close', 'Close', 5);
+  return {
+    ...basePhase,
+    subItems: {
+      poClosure: {
+        name: subItems[0].name,
+        value: 0,
+        isNA: false
+      },
+      projectTurnover: {
+        name: subItems[1].name,
+        value: 0,
+        isNA: false
+      }
+    }
+  };
+};
+
+// Helper function to create the appropriate phase based on type
 export const createEmptyPhase = (
   id: string,
   name: string,
   weight: number,
   subItems: typeof PHASE_SUB_ITEMS[keyof typeof PHASE_SUB_ITEMS]
-): PhaseProgress => ({
-  id,
-  name,
-  weight,
-  completion: 0,
-  subItems: subItems.map(item => ({
-    id: item.id,
-    name: item.name,
-    value: 0,
-    isNA: false
-  }))
-});
+): FeasibilityPhase | PlanningPhase | ExecutionPhase | ClosePhase => {
+  switch (id) {
+    case 'feasibility':
+      return createEmptyFeasibilityPhase(subItems as typeof PHASE_SUB_ITEMS.feasibility);
+    case 'planning':
+      return createEmptyPlanningPhase(subItems as typeof PHASE_SUB_ITEMS.planning);
+    case 'execution':
+      return createEmptyExecutionPhase(subItems as typeof PHASE_SUB_ITEMS.execution);
+    case 'close':
+      return createEmptyClosePhase(subItems as typeof PHASE_SUB_ITEMS.close);
+    default:
+      throw new Error(`Unknown phase type: ${id}`);
+  }
+};
 
 export const createEmptyProject = (
   id: string,
   type: ProjectType = PROJECT_TYPES.PROJECTS
-): Project => ({
-  id,
-  projectName: '',
-  projectOwner: '',
-  startDate: new Date(),
-  endDate: new Date(),
-  projectType: type,
-  totalBudget: 0,
-  totalActual: 0,
-  projectStatus: 'On Track',
-  phases: {
-    feasibility: createEmptyPhase('feasibility', 'Feasibility', type.phaseWeights.feasibility, PHASE_SUB_ITEMS.feasibility),
-    planning: createEmptyPhase('planning', 'Planning', type.phaseWeights.planning, PHASE_SUB_ITEMS.planning),
-    execution: createEmptyPhase('execution', 'Execution', type.phaseWeights.execution, PHASE_SUB_ITEMS.execution),
-    close: createEmptyPhase('close', 'Close', type.phaseWeights.close, PHASE_SUB_ITEMS.close)
-  },
-  lastUpdated: new Date()
-}); 
+): Project => {
+  const now = new Date();
+  return {
+    id,
+    projectName: '',
+    projectOwner: '',
+    startDate: now,
+    endDate: new Date(now.getFullYear() + 1, now.getMonth(), now.getDate()),
+    projectType: type,
+    totalBudget: 0,
+    totalActual: 0,
+    projectStatus: 'On Track',
+    phases: {
+      feasibility: createEmptyFeasibilityPhase(PHASE_SUB_ITEMS.feasibility),
+      planning: createEmptyPlanningPhase(PHASE_SUB_ITEMS.planning),
+      execution: createEmptyExecutionPhase(PHASE_SUB_ITEMS.execution),
+      close: createEmptyClosePhase(PHASE_SUB_ITEMS.close)
+    },
+    lastUpdated: now,
+    sesNumber: '',
+    upcomingMilestone: '',
+    milestoneDueDate: undefined,
+    financialNotes: ''
+  };
+};
+
+// Test function to verify phase weight calculations
+export const testPhaseWeights = () => {
+  console.log('=== TESTING PHASE WEIGHTS ===');
+  
+  const testPhases = {
+    feasibility: { completion: 80 },
+    planning: { completion: 60 },
+    execution: { completion: 40 },
+    close: { completion: 20 }
+  };
+  
+  const projectResult = calculateOverallCompletion(testPhases, 'project');
+  console.log('Project result:', projectResult, '(Expected: 52%)');
+  
+  const assetResult = calculateOverallCompletion(testPhases, 'asset_purchase');
+  console.log('Asset result:', assetResult, '(Expected: 48%)');
+}; 

@@ -12,6 +12,47 @@ BEGIN
     END IF;
 END $$;
 
+-- Add phases_data column to projects if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'projects' 
+        AND column_name = 'phases_data'
+    ) THEN
+        ALTER TABLE public.projects
+        ADD COLUMN phases_data jsonb DEFAULT jsonb_build_object(
+            'feasibility', jsonb_build_object(
+                'risk_assessment', 0,
+                'project_charter', 0
+            ),
+            'planning', jsonb_build_object(
+                'rfq_package', 0,
+                'validation_strategy', 0,
+                'financial_forecast', 0,
+                'vendor_solicitation', 0,
+                'gantt_chart', 0,
+                'ses_asset_number_approval', 0
+            ),
+            'execution', jsonb_build_object(
+                'po_submission', 0,
+                'equipment_design', 0,
+                'equipment_build', 0,
+                'project_documentation', 0,
+                'demo_install', 0,
+                'validation', 0,
+                'equipment_turnover', 0,
+                'go_live', 0
+            ),
+            'close', jsonb_build_object(
+                'po_closure', 0,
+                'project_turnover', 0
+            )
+        );
+    END IF;
+END $$;
+
 -- Create the phase_weights table
 CREATE TABLE IF NOT EXISTS public.phase_weights (
     project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,

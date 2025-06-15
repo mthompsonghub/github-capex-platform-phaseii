@@ -58,18 +58,18 @@ export interface CapExActual {
   updated_at: string;
 }
 
-export interface Column {
-  key: keyof CapExRecord;
-  title: string;
-  width?: number;
-  type?: 'number' | 'percentage' | 'status' | 'text' | 'textarea';
-  editable?: boolean;
-  calculated?: boolean;
-}
+export type ColumnType = 'number' | 'percentage' | 'status' | 'text' | 'textarea' | 'date';
 
 export interface ColumnGroup {
   title: string;
-  children: Column[];
+  children: {
+    key: keyof CapExRecord;
+    title: string;
+    width: number;
+    type: ColumnType;
+    editable?: boolean;
+    calculated?: boolean;
+  }[];
 }
 
 export interface TableState {
@@ -171,6 +171,33 @@ export interface CapExRecord {
   total_actual_target: number;
   upcoming_milestone: string;
   comments_risk: string;
+  ses_number: string;
+  milestone_due_date: string;
+  financial_notes: string;
+
+  // Phase fields
+  risk_assessment: number;
+  project_charter: number;
+  feasibility_status: number;
+  rfq_package: number;
+  validation_strategy: number;
+  financial_forecast: number;
+  vendor_solicitation: number;
+  gantt_chart: number;
+  ses_asset_number_approval: number;
+  planning_status: number;
+  po_submission: number;
+  equipment_design: number;
+  equipment_build: number;
+  project_documentation: number;
+  demo_install: number;
+  validation: number;
+  equipment_turnover: number;
+  go_live: number;
+  execution_status: number;
+  po_closure: number;
+  project_turnover: number;
+  close_status: number;
 
   // Phases
   feasibility: Phase;
@@ -197,6 +224,7 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
       { key: 'project_name', title: 'Name', width: 300, type: 'text', editable: true },
       { key: 'start_date', title: 'Start Date', width: 120, type: 'text', editable: true },
       { key: 'end_date', title: 'End Date', width: 120, type: 'text', editable: true },
+      { key: 'ses_number', title: 'SES Number', width: 120, type: 'text', editable: true },
     ],
   },
   {
@@ -205,6 +233,14 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
       { key: 'total_budget', title: 'Total Budget ($ \'000s)', width: 150, type: 'number', editable: true },
       { key: 'total_actual', title: 'Total Actual ($ \'000s)', width: 150, type: 'number', editable: true },
       { key: 'total_spent_percentage', title: 'Total Spent (%)', width: 150, type: 'percentage', calculated: true },
+      { key: 'financial_notes', title: 'Financial Notes', width: 200, type: 'text', editable: true },
+    ],
+  },
+  {
+    title: 'Milestone Tracking',
+    children: [
+      { key: 'upcoming_milestone', title: 'Upcoming Milestone', width: 150, type: 'text', editable: true },
+      { key: 'milestone_due_date', title: 'Due Date', width: 120, type: 'date', editable: true },
     ],
   },
   {
@@ -261,7 +297,6 @@ export const COLUMN_GROUPS: ColumnGroup[] = [
   {
     title: 'Project Status',
     children: [
-      { key: 'upcoming_milestone', title: 'Upcoming Milestone', width: 300, type: 'text', editable: true },
       { key: 'comments_risk', title: 'Comment/Risk', width: 300, type: 'textarea', editable: true },
     ],
   },

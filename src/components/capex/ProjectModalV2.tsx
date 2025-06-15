@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCapExStore } from '../../stores/capexStore';
-import { Project } from './data/capexData';
+import { Project, PROJECT_TYPES, calculatePhaseCompletion, calculateOverallCompletion } from './data/capexData';
 import {
   Dialog,
   DialogTitle,
@@ -17,7 +17,13 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Alert
+  Alert,
+  Slider,
+  Switch,
+  FormControlLabel,
+  InputAdornment,
+  Card,
+  Grid
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
@@ -51,7 +57,7 @@ function a11yProps(index: number) {
 
 export const ProjectEditModalV2: React.FC = () => {
   const modalState = useCapExStore(state => state.modalState);
-  const updateProject = useCapExStore(state => state.actions.updateProject);
+  const actions = useCapExStore(state => state.actions);
   const closeProjectModal = useCapExStore(state => state.actions.closeProjectModal);
   const [activeTab, setActiveTab] = useState(0);
   const [editedProject, setEditedProject] = useState<Project | null>(null);
@@ -60,12 +66,27 @@ export const ProjectEditModalV2: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (modalState.data) {
+    console.log('ProjectModalV2 useEffect - modalState:', modalState);
+    console.log('ProjectModalV2 useEffect - modalState.data:', modalState.data);
+    
+    if (modalState.data === 'admin') {
+      console.log('Admin modal detected - ignoring in ProjectModalV2');
+      return;
+    }
+    
+    if (modalState.isOpen && modalState.data && typeof modalState.data === 'object') {
+      console.log('Setting editedProject to:', modalState.data);
       setEditedProject(modalState.data);
       setHasUnsavedChanges(false);
       setValidationErrors({});
+      setActiveTab(0); // Reset to first tab
+    } else if (!modalState.isOpen) {
+      // Clear state when modal closes
+      setEditedProject(null);
+      setHasUnsavedChanges(false);
+      setValidationErrors({});
     }
-  }, [modalState.data]);
+  }, [modalState.isOpen, modalState.data]);
 
   const handleClose = () => {
     if (hasUnsavedChanges) {
@@ -126,35 +147,84 @@ export const ProjectEditModalV2: React.FC = () => {
     return Object.keys(errors).length === 0;
   };
 
+  const recalculateCompletion = (updatedPhases: any) => {
+    // Update individual phase completion percentages
+    const feasibilityCompletion = calculatePhaseCompletion(updatedPhases.feasibility);
+    const planningCompletion = calculatePhaseCompletion(updatedPhases.planning);
+    const executionCompletion = calculatePhaseCompletion(updatedPhases.execution);
+    const closeCompletion = calculatePhaseCompletion(updatedPhases.close);
+
+    // Update the phases with new completion percentages
+    const phasesWithCompletion = {
+      ...updatedPhases,
+      feasibility: { ...updatedPhases.feasibility, completion: feasibilityCompletion },
+      planning: { ...updatedPhases.planning, completion: planningCompletion },
+      execution: { ...updatedPhases.execution, completion: executionCompletion },
+      close: { ...updatedPhases.close, completion: closeCompletion }
+    };
+
+    return phasesWithCompletion;
+  };
+
   const handleSave = async () => {
-    if (!editedProject || !validateForm()) {
-      return;
-    }
-    
-    setIsSaving(true);
     try {
-      await updateProject(editedProject.id, {
-        projectName: editedProject.projectName,
-        projectOwner: editedProject.projectOwner,
-        projectStatus: editedProject.projectStatus,
-        startDate: editedProject.startDate,
-        endDate: editedProject.endDate,
-        totalBudget: editedProject.totalBudget,
-        totalActual: editedProject.totalActual,
-        projectType: editedProject.projectType,
-        phases: editedProject.phases
-      });
+      console.log('🔍 About to call store updateProject directly');
+      // Call store function directly
+      const store = useCapExStore.getState();
+      await store.actions.updateProject(editedProject);
+      console.log('✅ Store updateProject completed');
+      // ... rest of save logic (e.g., close modal, setHasUnsavedChanges(false), etc.)
       setHasUnsavedChanges(false);
       closeProjectModal();
     } catch (error) {
-      console.error('Error saving project:', error);
-    } finally {
-      setIsSaving(false);
+      console.error('Save error:', error);
     }
   };
 
-  if (!editedProject || !modalState.isOpen) {
+  const getDisplayWeight = (phaseName: string) => {
+    const projectType = editedProject?.projectType || editedProject?.project_type;
+    const store = useCapExStore.getState();
+    const weights = store.actions.getPhaseWeights(projectType);
+    return weights[phaseName] || 0;
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
+    setEditedProject(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    setHasUnsavedChanges(true);
+  };
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0
+    }).format(amount || 0);
+  };
+
+  const budget = editedProject?.totalBudget || editedProject?.total_budget || 0;
+  const actualSpend = editedProject?.totalActual || editedProject?.total_actual || 0;
+  const remainingBudget = budget - actualSpend;
+
+  // Don't render anything when admin modal is open
+  if (modalState.data === 'admin') {
     return null;
+  }
+
+  if (!modalState.isOpen) {
+    return null;
+  }
+
+  if (!editedProject) {
+    return (
+      <Dialog open={modalState.isOpen} onClose={handleClose}>
+        <DialogContent>
+          <Typography>Loading project data...</Typography>
+        </DialogContent>
+      </Dialog>
+    );
   }
 
   const renderBasicInfoTab = () => {
@@ -241,12 +311,14 @@ export const ProjectEditModalV2: React.FC = () => {
     <Dialog
       open={modalState.isOpen}
       onClose={handleClose}
-      maxWidth="lg"
+      maxWidth="md"
       fullWidth
       PaperProps={{
         sx: {
           minHeight: '80vh',
-          maxHeight: '90vh'
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column'
         }
       }}
     >
@@ -278,19 +350,367 @@ export const ProjectEditModalV2: React.FC = () => {
             <Typography variant="h6" gutterBottom>
               Status & Milestones
             </Typography>
-            <Typography color="text.secondary">
-              Phase progress tracking and milestone management will be implemented here.
-            </Typography>
+            
+            {/* Feasibility Phase */}
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2, color: 'primary.main' }}>
+                Feasibility Phase ({getDisplayWeight('feasibility')}% weight)
+              </Typography>
+              {Object.entries(editedProject.phases.feasibility.subItems).map(([key, subItem]) => (
+                <Box key={key} sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {subItem.name}
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {subItem.value}%
+                      </Typography>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={subItem.isNA}
+                            onChange={(e) => {
+                              const updatedPhases = {
+                                ...editedProject.phases,
+                                feasibility: {
+                                  ...editedProject.phases.feasibility,
+                                  subItems: {
+                                    ...editedProject.phases.feasibility.subItems,
+                                    [key]: { ...subItem, isNA: e.target.checked, value: e.target.checked ? 0 : subItem.value }
+                                  }
+                                }
+                              };
+                              updateField('phases', updatedPhases);
+                            }}
+                          />
+                        }
+                        label="N/A"
+                      />
+                    </Box>
+                  </Box>
+                  <Slider
+                    value={subItem.value}
+                    onChange={(_, newValue) => {
+                      const updatedPhases = {
+                        ...editedProject.phases,
+                        feasibility: {
+                          ...editedProject.phases.feasibility,
+                          subItems: {
+                            ...editedProject.phases.feasibility.subItems,
+                            [key]: { ...subItem, value: newValue as number }
+                          }
+                        }
+                      };
+                      const finalPhases = recalculateCompletion(updatedPhases);
+                      updateField('phases', finalPhases);
+                    }}
+                    disabled={subItem.isNA}
+                    min={0}
+                    max={100}
+                    step={1}
+                    marks={[
+                      { value: 0, label: '0%' },
+                      { value: 50, label: '50%' },
+                      { value: 100, label: '100%' }
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(value) => `${value}%`}
+                  />
+                </Box>
+              ))}
+            </Box>
+
+            {/* Planning Phase */}
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2, color: 'primary.main' }}>
+                Planning Phase ({getDisplayWeight('planning')}% weight)
+              </Typography>
+              {Object.entries(editedProject.phases.planning.subItems).map(([key, subItem]) => (
+                <Box key={key} sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {subItem.name}
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {subItem.value}%
+                      </Typography>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={subItem.isNA}
+                            onChange={(e) => {
+                              const updatedPhases = {
+                                ...editedProject.phases,
+                                planning: {
+                                  ...editedProject.phases.planning,
+                                  subItems: {
+                                    ...editedProject.phases.planning.subItems,
+                                    [key]: { ...subItem, isNA: e.target.checked, value: e.target.checked ? 0 : subItem.value }
+                                  }
+                                }
+                              };
+                              updateField('phases', updatedPhases);
+                            }}
+                          />
+                        }
+                        label="N/A"
+                      />
+                    </Box>
+                  </Box>
+                  <Slider
+                    value={subItem.value}
+                    onChange={(_, newValue) => {
+                      const updatedPhases = {
+                        ...editedProject.phases,
+                        planning: {
+                          ...editedProject.phases.planning,
+                          subItems: {
+                            ...editedProject.phases.planning.subItems,
+                            [key]: { ...subItem, value: newValue as number }
+                          }
+                        }
+                      };
+                      const finalPhases = recalculateCompletion(updatedPhases);
+                      updateField('phases', finalPhases);
+                    }}
+                    disabled={subItem.isNA}
+                    min={0}
+                    max={100}
+                    step={1}
+                    marks={[
+                      { value: 0, label: '0%' },
+                      { value: 50, label: '50%' },
+                      { value: 100, label: '100%' }
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(value) => `${value}%`}
+                  />
+                </Box>
+              ))}
+            </Box>
+
+            {/* Execution Phase */}
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2, color: 'primary.main' }}>
+                Execution Phase ({getDisplayWeight('execution')}% weight)
+              </Typography>
+              {Object.entries(editedProject.phases.execution.subItems).map(([key, subItem]) => (
+                <Box key={key} sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {subItem.name}
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {subItem.value}%
+                      </Typography>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={subItem.isNA}
+                            onChange={(e) => {
+                              const updatedPhases = {
+                                ...editedProject.phases,
+                                execution: {
+                                  ...editedProject.phases.execution,
+                                  subItems: {
+                                    ...editedProject.phases.execution.subItems,
+                                    [key]: { ...subItem, isNA: e.target.checked, value: e.target.checked ? 0 : subItem.value }
+                                  }
+                                }
+                              };
+                              const finalPhases = recalculateCompletion(updatedPhases);
+                              updateField('phases', finalPhases);
+                            }}
+                          />
+                        }
+                        label="N/A"
+                      />
+                    </Box>
+                  </Box>
+                  <Slider
+                    value={subItem.value}
+                    onChange={(_, newValue) => {
+                      const updatedPhases = {
+                        ...editedProject.phases,
+                        execution: {
+                          ...editedProject.phases.execution,
+                          subItems: {
+                            ...editedProject.phases.execution.subItems,
+                            [key]: { ...subItem, value: newValue as number }
+                          }
+                        }
+                      };
+                      const finalPhases = recalculateCompletion(updatedPhases);
+                      updateField('phases', finalPhases);
+                    }}
+                    disabled={subItem.isNA}
+                    min={0}
+                    max={100}
+                    step={1}
+                    marks={[
+                      { value: 0, label: '0%' },
+                      { value: 50, label: '50%' },
+                      { value: 100, label: '100%' }
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(value) => `${value}%`}
+                  />
+                </Box>
+              ))}
+            </Box>
+
+            {/* Close Phase */}
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2, color: 'primary.main' }}>
+                Close Phase ({getDisplayWeight('close')}% weight)
+              </Typography>
+              {Object.entries(editedProject.phases.close.subItems).map(([key, subItem]) => (
+                <Box key={key} sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                      {subItem.name}
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        {subItem.value}%
+                      </Typography>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={subItem.isNA}
+                            onChange={(e) => {
+                              const updatedPhases = {
+                                ...editedProject.phases,
+                                close: {
+                                  ...editedProject.phases.close,
+                                  subItems: {
+                                    ...editedProject.phases.close.subItems,
+                                    [key]: { ...subItem, isNA: e.target.checked, value: e.target.checked ? 0 : subItem.value }
+                                  }
+                                }
+                              };
+                              const finalPhases = recalculateCompletion(updatedPhases);
+                              updateField('phases', finalPhases);
+                            }}
+                          />
+                        }
+                        label="N/A"
+                      />
+                    </Box>
+                  </Box>
+                  <Slider
+                    value={subItem.value}
+                    onChange={(_, newValue) => {
+                      const updatedPhases = {
+                        ...editedProject.phases,
+                        close: {
+                          ...editedProject.phases.close,
+                          subItems: {
+                            ...editedProject.phases.close.subItems,
+                            [key]: { ...subItem, value: newValue as number }
+                          }
+                        }
+                      };
+                      const finalPhases = recalculateCompletion(updatedPhases);
+                      updateField('phases', finalPhases);
+                    }}
+                    disabled={subItem.isNA}
+                    min={0}
+                    max={100}
+                    step={1}
+                    marks={[
+                      { value: 0, label: '0%' },
+                      { value: 50, label: '50%' },
+                      { value: 100, label: '100%' }
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={(value) => `${value}%`}
+                  />
+                </Box>
+              ))}
+            </Box>
           </Box>
         </TabPanel>
         <TabPanel value={activeTab} index={2}>
-          <Box sx={{ p: 2 }}>
+          <Box sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
-              Financial Details
+              Project Identification
             </Typography>
-            <Typography color="text.secondary">
-              Budget tracking and financial reporting will be implemented here.
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="SES Asset Number"
+                  value={editedProject?.sesNumber || editedProject?.ses_number || ''}
+                  onChange={(e) => handleFieldChange('sesNumber', e.target.value)}
+                  placeholder="Enter SES Asset Number"
+                  helperText="Internal asset tracking number"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Upcoming Milestone"
+                  value={editedProject?.upcomingMilestone || editedProject?.upcoming_milestone || ''}
+                  onChange={(e) => handleFieldChange('upcomingMilestone', e.target.value)}
+                  placeholder="Next major milestone"
+                  helperText="Next key deliverable"
+                />
+              </Grid>
+            </Grid>
+            <Typography variant="h6" gutterBottom>
+              Budget Overview
             </Typography>
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Total Budget"
+                  type="number"
+                  value={budget || 0}
+                  onChange={(e) => handleFieldChange('totalBudget', parseFloat(e.target.value) || 0)}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Actual Spend"
+                  type="number"
+                  value={actualSpend || 0}
+                  onChange={(e) => handleFieldChange('totalActual', parseFloat(e.target.value) || 0)}
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  }}
+                />
+              </Grid>
+            </Grid>
+            <Card sx={{ p: 2, mb: 3, bgcolor: remainingBudget < 0 ? 'error.light' : 'success.light' }}>
+              <Typography variant="h6">
+                Remaining Budget: {formatCurrency(remainingBudget)}
+              </Typography>
+              <Typography variant="body2">
+                Budget Utilization: {budget ? Math.round((actualSpend / budget) * 100) : 0}%
+              </Typography>
+            </Card>
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              label="Financial Notes"
+              value={editedProject?.financialNotes || editedProject?.comments || ''}
+              onChange={(e) => handleFieldChange('financialNotes', e.target.value)}
+              placeholder="Budget justifications, concerns, or notes..."
+            />
           </Box>
         </TabPanel>
       </DialogContent>

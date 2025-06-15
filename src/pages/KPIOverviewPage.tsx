@@ -11,6 +11,10 @@ import { Project } from '../components/capex/data/capexData';
 import { AdminConfig } from '../components/capex/admin/AdminConfig';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../utils/projectUtils';
 import { CapExErrorBoundary } from '../components/ErrorBoundary';
+import { ExtendedThresholdSettings } from '../components/capex/admin/AdminConfig';
+import { ExecutiveBanner } from '../components/capex/ExecutiveBanner';
+import { ViewControls } from '../components/capex/ViewControls';
+import { ProjectCard } from '../components/capex/ProjectCard';
 
 const KPIOverviewPageContent: React.FC = () => {
   const projects = useCapExStore(state => state.projects);
@@ -19,17 +23,51 @@ const KPIOverviewPageContent: React.FC = () => {
   const fetchProjects = useCapExStore(state => state.actions.fetchProjects);
   const updateProject = useCapExStore(state => state.actions.updateProject);
   const updateAdminSettings = useCapExStore(state => state.actions.updateAdminSettings);
-  // If you have loading/errors in your store, add selectors here
-  // const loading = useCapExStore(state => state.loading);
-  // const errors = useCapExStore(state => state.errors);
+  const closeProjectModal = useCapExStore(state => state.actions.closeProjectModal);
+  const fetchPhaseWeights = useCapExStore(state => state.actions.fetchPhaseWeights);
+  const fetchAdminSettings = useCapExStore(state => state.actions.fetchAdminSettings);
+  const fetchUserRole = useCapExStore(state => state.actions.fetchUserRole);
 
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [searchTerm, setSearchTerm] = useState('');
   const [showFinancials, setShowFinancials] = useState(true);
 
+  // Handle admin modal state
+  const isAdminModalOpen = modalState.isOpen && modalState.data === 'admin';
+  const handleCloseAdminModal = () => {
+    console.log('Closing admin modal');
+    closeProjectModal();
+  };
+
+  const handleAdminConfigUpdate = async (settings: ExtendedThresholdSettings) => {
+    console.log('Updating admin settings:', settings);
+    await updateAdminSettings(settings);
+  };
+
   useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        // Load phase weights first (needed for calculations)
+        await fetchPhaseWeights();
+        
+        // Then load other data
+        await fetchProjects();
+        await fetchAdminSettings();
+        await fetchUserRole();
+        
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [fetchProjects, fetchAdminSettings, fetchUserRole, fetchPhaseWeights]);
 
   useEffect(() => {
     const getUser = async () => {
@@ -50,43 +88,35 @@ const KPIOverviewPageContent: React.FC = () => {
     getUser();
   }, []);
 
-  const handleProjectUpdate = (projectId: string, updates: Partial<Project>) => {
-    updateProject(projectId, updates);
+  const handleProjectUpdate = (project: Project) => {
+    updateProject(project);
   };
 
   const handleToggleFinancials = () => {
     setShowFinancials((prev) => !prev);
   };
 
-  const handleAdminConfigUpdate = () => {
-    // Refresh data to update project statuses with new thresholds
-    window.location.reload();
+  const handleAnalytics = () => {
+    console.log('Analytics clicked');
+    // TODO: Open analytics modal
   };
 
-  const handleAnalyticsClick = () => {
-    alert("Analytics functionality coming in Phase 3");
+  const handleExport = () => {
+    console.log('Export clicked');
+    // TODO: Implement export functionality
   };
 
   const handleTestError = () => {
     throw new Error('Test Component Error');
   };
 
-  // If you have loading/errors in your store, use them here
-  // if (loading.projects) {
-  //   return (
-  //     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-  //       <CircularProgress />
-  //     </Box>
-  //   );
-  // }
-
-  // if (errors.projects) {
-  //   return (
-  //     <Box sx={{ p: 3 }}>
-  //       <Alert severity="error">{String(errors.projects)}</Alert>
-  //     </Box>
-  //   );
-  // }
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   if (projects.length === 0) {
     return (
@@ -98,21 +128,6 @@ const KPIOverviewPageContent: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      {/* If you have loading/errors, add them here */}
-      {/* {loading.projects && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-          <CircularProgress />
-        </Box>
-      )}
-      {errors.projects && (
-        <Alert severity="error" sx={{ mb: 2 }}>{String(errors.projects)}</Alert>
-      )} */}
-      {projects.length === 0 && (
-        <Typography variant="h6" sx={{ textAlign: 'center', color: 'text.secondary', my: 4 }}>
-          No projects found
-        </Typography>
-      )}
-
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
           CapEx Projects Overview
@@ -132,7 +147,7 @@ const KPIOverviewPageContent: React.FC = () => {
             </Button>
           )}
           <Button
-            onClick={handleAnalyticsClick}
+            onClick={handleAnalytics}
             variant="contained"
             startIcon={<BarChart2 className="w-4 h-4" />}
             sx={{ 
@@ -165,25 +180,61 @@ const KPIOverviewPageContent: React.FC = () => {
         </Box>
       </Box>
 
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Grid container spacing={2}>
-          {projects.map((project) => (
-            <Grid item xs={12} key={project.id}>
-              <ProjectRow
-                project={project}
-                showFinancials={showFinancials}
-              />
-            </Grid>
-          ))}
-        </Grid>
-      </Paper>
+      <ExecutiveBanner projects={projects} />
 
-      {/* If you have modalState/adminConfig, update this as needed */}
-      {/* <AdminConfig 
-        open={modalState.adminConfig?.isOpen}
-        onClose={() => {}}
+      <ViewControls
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        showFinancials={showFinancials}
+        onToggleFinancials={handleToggleFinancials}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        onAnalytics={handleAnalytics}
+        onExport={handleExport}
+      />
+
+      {viewMode === 'card' ? (
+        // Card View - Responsive Grid
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: '1fr',
+            sm: 'repeat(2, 1fr)', 
+            lg: 'repeat(3, 1fr)',
+            xl: 'repeat(auto-fit, minmax(380px, 1fr))'
+          },
+          gap: 3,
+          mb: 3
+        }}>
+          {projects.map((project) => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              showFinancials={showFinancials}
+            />
+          ))}
+        </Box>
+      ) : (
+        // Table View - Your existing layout
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Grid container spacing={2}>
+            {projects.map((project) => (
+              <Grid item xs={12} key={project.id}>
+                <ProjectRow
+                  project={project}
+                  showFinancials={showFinancials}
+                />
+              </Grid>
+            ))}
+          </Grid>
+        </Paper>
+      )}
+
+      <AdminConfig 
+        open={isAdminModalOpen}
+        onClose={handleCloseAdminModal}
         onUpdate={handleAdminConfigUpdate}
-      /> */}
+      />
 
       <ProjectEditModalV2 />
     </Box>

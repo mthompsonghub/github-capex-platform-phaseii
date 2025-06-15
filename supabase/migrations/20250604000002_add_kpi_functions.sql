@@ -22,12 +22,13 @@ BEGIN
         NEW.feasibility_weight := 0.15;
         NEW.planning_weight := 0.35;
         NEW.execution_weight := 0.45;
+        NEW.close_weight := 0.05;
     ELSE -- asset_purchase
-        NEW.feasibility_weight := 0;
+        NEW.feasibility_weight := 0.00;
         NEW.planning_weight := 0.45;
         NEW.execution_weight := 0.50;
+        NEW.close_weight := 0.05;
     END IF;
-    NEW.close_weight := 0.05;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

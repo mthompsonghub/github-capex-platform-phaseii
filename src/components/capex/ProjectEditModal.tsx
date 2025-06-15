@@ -85,8 +85,10 @@ const formatDate = (date: Date | string): string => {
 };
 
 export const ProjectEditModal: React.FC = () => {
-  const { modals, setModalState, updateProject, adminSettings } = useCapExStore();
-  const { isOpen, data: initialProject } = modals.projectForm;
+  const modalState = useCapExStore(state => state.modalState);
+  const actions = useCapExStore(state => state.actions);
+  const adminSettings = useCapExStore(state => state.adminSettings);
+  const { isOpen, data: initialProject } = modalState;
   
   const [activeTab, setActiveTab] = useState(0);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -131,6 +133,12 @@ export const ProjectEditModal: React.FC = () => {
       setHasUnsavedChanges(false);
       setActiveTab(0);
       calculateAndSetOverallCompletion(initialProject);
+      // Add logging for debugging project type
+      console.log('Modal opened for project:', {
+        name: initialProject?.projectName || initialProject?.project_name,
+        type: initialProject?.projectType || initialProject?.project_type,
+        owner: initialProject?.projectOwner || initialProject?.project_owner
+      });
     }
   }, [initialProject]);
 
@@ -238,7 +246,7 @@ export const ProjectEditModal: React.FC = () => {
   };
 
   const closeModal = () => {
-    setModalState('projectForm', { isOpen: false, data: null });
+    actions.closeProjectModal();
     setEditedProject(null);
     setHasUnsavedChanges(false);
     setActiveTab(0);
@@ -254,7 +262,7 @@ export const ProjectEditModal: React.FC = () => {
         ? editedProject 
         : convertCapExRecordToProject(editedProject);
       
-      await updateProject(projectToSave);
+      await actions.updateProject(projectToSave);
       toast.success('Project updated successfully');
       closeModal();
     } catch (error) {
@@ -299,6 +307,13 @@ export const ProjectEditModal: React.FC = () => {
     setHasUnsavedChanges(true);
   };
 
+  const getDisplayWeight = (phaseName: string) => {
+    const projectType = editedProject?.projectType || editedProject?.project_type;
+    const store = useCapExStore.getState();
+    const weights = store.actions.getPhaseWeights(projectType);
+    return weights[phaseName] || 0;
+  };
+
   const renderPhaseSection = (
     phaseKey: 'feasibility' | 'planning' | 'execution' | 'close',
     phaseTitle: string
@@ -311,7 +326,7 @@ export const ProjectEditModal: React.FC = () => {
         const completion = calculatePhaseCompletionExcludingNA(phase.subItems);
         return (
           <Typography variant="body2" color="text.secondary">
-            Overall Impact: {phase.weight}%
+            Overall Impact: {completion}%
           </Typography>
         );
       }
@@ -321,7 +336,7 @@ export const ProjectEditModal: React.FC = () => {
     return (
       <Box sx={{ mb: 4 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          {phaseTitle}
+          {phaseTitle} Phase ({getDisplayWeight(phaseKey)}% weight)
         </Typography>
         {phaseImpact()}
         <Box sx={{ mt: 2 }}>
@@ -713,26 +728,21 @@ export const ProjectEditModal: React.FC = () => {
                 Phase Progress
               </Typography>
               <Grid container spacing={2}>
-                {Object.entries(isProject ? editedProject.phases : {
-                  feasibility: { completion: editedProject.feasibility.status.actual },
-                  planning: { completion: editedProject.planning.status.actual },
-                  execution: { completion: editedProject.execution.status.actual },
-                  close: { completion: editedProject.close.status.actual }
-                }).map(([phase, data]) => (
+                {['feasibility', 'planning', 'execution', 'close'].map((phase) => (
                   <Grid item xs={12} sm={6} key={phase}>
                     <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        {phase.charAt(0).toUpperCase() + phase.slice(1)}
+                      <Typography variant="h6" color="primary" gutterBottom>
+                        {phase.charAt(0).toUpperCase() + phase.slice(1)} Phase ({getDisplayWeight(phase)}% weight)
                       </Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Slider
-                          value={data.completion}
+                          value={isProject ? editedProject.phases[phase].completion : editedProject[phase].status.actual}
                           onChange={(_, value) => handlePhaseChange(phase, value as number)}
                           disabled={!canEditPercentages}
                           sx={{ flex: 1 }}
                         />
                         <Typography variant="body2" sx={{ minWidth: 45 }}>
-                          {Math.round(data.completion)}%
+                          {Math.round(isProject ? editedProject.phases[phase].completion : editedProject[phase].status.actual)}%
                         </Typography>
                       </Box>
                     </Box>

@@ -18,6 +18,7 @@ import { defaultSettings, updateStatusThresholds, getStoredThresholds, Threshold
 import { CapExErrorBoundary } from '../../ErrorBoundary';
 import toast from 'react-hot-toast';
 import debounce from 'lodash/debounce';
+import { useCapExStore } from '../../../stores/capexStore';
 
 export interface ExtendedThresholdSettings extends ThresholdSettings {
   projectWeights: {
@@ -115,9 +116,7 @@ const defaultExtendedSettings: ExtendedThresholdSettings = {
 const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdate }) => {
   console.log('AdminConfigContent rendered with props:', { open, onClose, onUpdate });
   
-  useEffect(() => {
-    console.log('AdminConfigContent open state changed:', open);
-  }, [open]);
+  const { phaseWeights, actions: { fetchPhaseWeights, updatePhaseWeights } } = useCapExStore();
 
   const [thresholds, setThresholds] = useState<ExtendedThresholdSettings>(defaultExtendedSettings);
   const [error, setError] = useState<string>('');
@@ -126,7 +125,12 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
 
   // Extract values from thresholds state
   const { onTrackThreshold, atRiskThreshold, impactedThreshold } = thresholds;
-  const { projectWeights, assetWeights } = thresholds;
+  const [projectWeights, setProjectWeights] = useState({
+    feasibility: 15, planning: 35, execution: 45, close: 5
+  });
+  const [assetWeights, setAssetWeights] = useState({
+    feasibility: 0, planning: 45, execution: 50, close: 5
+  });
 
   // Calculate totals
   const projectTotal = projectWeights.feasibility + projectWeights.planning + projectWeights.execution + projectWeights.close;
@@ -154,6 +158,21 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
       }
     }
   }, [open]);
+
+  // Load phase weights when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetchPhaseWeights();
+    }
+  }, [open, fetchPhaseWeights]);
+
+  // Update local state when phase weights change
+  useEffect(() => {
+    if (phaseWeights) {
+      setProjectWeights(phaseWeights.projects);
+      setAssetWeights(phaseWeights.asset_purchases);
+    }
+  }, [phaseWeights]);
 
   // Debounced error toast
   const showErrorToast = useCallback(
@@ -191,39 +210,36 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
     }));
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = async () => {
+    console.log('AdminConfig handleSave called');
+    console.log('Saving thresholds:', { onTrackThreshold, atRiskThreshold, impactedThreshold });
+    console.log('Saving project weights:', projectWeights);
+    console.log('Saving asset weights:', assetWeights);
     
-    if (!onUpdate) {
-      console.error('No update handler provided');
-      return;
-    }
-
     try {
-      const saveData: ExtendedThresholdSettings = {
-        onTrackThreshold: Number(onTrackThreshold),
-        atRiskThreshold: Number(atRiskThreshold),
-        impactedThreshold: Number(impactedThreshold),
-        projectWeights: {
-          feasibility: projectWeights.feasibility,
-          planning: projectWeights.planning,
-          execution: projectWeights.execution,
-          close: projectWeights.close
-        },
-        assetWeights: {
-          feasibility: assetWeights.feasibility,
-          planning: assetWeights.planning,
-          execution: assetWeights.execution,
-          close: assetWeights.close
-        }
-      };
+      if (!onUpdate) {
+        console.error('onUpdate function is not defined');
+        return;
+      }
 
-      console.log('Saving settings:', saveData);
-      const result = await onUpdate(saveData);
-      console.log('Save result:', result);
+      // Save threshold settings
+      await onUpdate({
+        onTrackThreshold,
+        atRiskThreshold,
+        impactedThreshold,
+        projectWeights,
+        assetWeights
+      });
+
+      // Save phase weights
+      await updatePhaseWeights('projects', projectWeights);
+      await updatePhaseWeights('asset_purchases', assetWeights);
       
+      console.log('All settings saved successfully');
+      onClose();
     } catch (error) {
-      console.error('Error saving settings:', error);
+      console.error('Save failed:', error);
+      toast.error('Failed to save settings');
     }
   };
 
@@ -345,8 +361,6 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
     );
   };
 
-  const marks = Array.from({ length: 11 }, (_, i: number) => ({ value: i * 10, label: `${i * 10}%` }));
-
   console.log('AdminConfig rendering with open:', open);
   return (
     <Dialog
@@ -413,7 +427,23 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                   min={0}
                   max={100}
                   step={1}
-                  marks={marks}
+                  marks={Array.from({ length: 11 }, (_, i) => ({ value: i * 10, label: `${i * 10}%` }))}
+                  sx={{
+                    color: '#10B981',
+                    '& .MuiSlider-thumb': {
+                      '&:hover, &.Mui-focusVisible': {
+                        boxShadow: '0 0 0 8px rgba(16, 185, 129, 0.16)'
+                      }
+                    },
+                    '& .MuiSlider-mark': {
+                      backgroundColor: '#bfdbfe',
+                      height: '8px',
+                      width: '1px',
+                      '&.MuiSlider-markActive': {
+                        backgroundColor: '#fff'
+                      }
+                    }
+                  }}
                 />
               </Box>
 
@@ -441,7 +471,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                       }
                     },
                     '& .MuiSlider-mark': {
-                      backgroundColor: '#fef3c7',
+                      backgroundColor: '#bfdbfe',
                       height: '8px',
                       width: '1px',
                       '&.MuiSlider-markActive': {
@@ -476,7 +506,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
                       }
                     },
                     '& .MuiSlider-mark': {
-                      backgroundColor: '#fef2f2',
+                      backgroundColor: '#bfdbfe',
                       height: '8px',
                       width: '1px',
                       '&.MuiSlider-markActive': {
@@ -490,7 +520,7 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
           </Box>
 
           {/* Project Phase Weights */}
-          <Box>
+          <Box sx={{ mt: 4 }}>
             <Typography variant="h6">Project Phase Weights</Typography>
             <Box sx={{ px: 2 }}>
               <Box sx={{ mb: 2 }}>
@@ -535,9 +565,9 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
             </Box>
           </Box>
 
-          {/* Asset Purchase Phase Weights */}
-          <Box>
-            <Typography variant="h6">Asset Purchase Phase Weights</Typography>
+          {/* Asset Category Weights */}
+          <Box sx={{ mt: 4 }}>
+            <Typography variant="h6">Asset Category Weights</Typography>
             <Box sx={{ px: 2 }}>
               <Box sx={{ mb: 2 }}>
                 <Typography>Feasibility</Typography>
@@ -582,16 +612,33 @@ const AdminConfigContent: React.FC<AdminConfigProps> = ({ open, onClose, onUpdat
           </Box>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+      
+      <DialogActions sx={{ 
+        borderTop: '1px solid #E5E7EB',
+        px: 3,
+        py: 2
+      }}>
         <Button 
-          onClick={(e) => {
-            alert('Button onClick fired!'); // Debug - remove this later
-            handleSave(e);
+          onClick={onClose}
+          sx={{ 
+            color: '#6B7280',
+            '&:hover': {
+              backgroundColor: '#F3F4F6'
+            }
           }}
-          type="button"
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={handleSave}
           variant="contained"
           disabled={isLoading || !!error}
+          sx={{ 
+            backgroundColor: '#1e40af',
+            '&:hover': {
+              backgroundColor: '#1e3a8a'
+            }
+          }}
         >
           {isLoading ? 'Saving...' : 'Save Changes'}
         </Button>
@@ -607,4 +654,4 @@ export const AdminConfig: React.FC<AdminConfigProps> = (props) => {
       <AdminConfigContent {...props} />
     </CapExErrorBoundary>
   );
-};
+}; 

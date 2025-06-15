@@ -16,6 +16,7 @@ import {
   Tab
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import { FinancialDetailsTab } from './tabs/FinancialDetailsTab';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -23,53 +24,57 @@ interface TabPanelProps {
   value: number;
 }
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
-
 function a11yProps(index: number) {
   return {
-    id: `simple-tab-${index}`,
-    'aria-controls': `simple-tabpanel-${index}`,
+    id: `project-edit-tab-${index}`,
+    'aria-controls': `project-edit-tabpanel-${index}`,
   };
 }
 
+const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
+  <div
+    role="tabpanel"
+    hidden={value !== index}
+    id={`project-edit-tabpanel-${index}`}
+    aria-labelledby={`project-edit-tab-${index}`}
+  >
+    {value === index && (
+      <Box sx={{ p: 3 }}>
+        {children}
+      </Box>
+    )}
+  </div>
+);
+
 export const ProjectEditModalV2: React.FC = () => {
-  const { modals, setModalState } = useCapExStore();
-  const { isOpen, data: initialProject } = modals.projectForm;
+  const modalState = useCapExStore(state => state.modalState);
+  const actions = useCapExStore(state => state.actions);
+  const { isOpen, data: initialProject } = modalState;
   const [activeTab, setActiveTab] = useState(0);
   const [editedProject, setEditedProject] = useState<Project | CapExRecord | null>(null);
 
   // Initialize edited project when modal opens
   React.useEffect(() => {
-    if (initialProject) {
+    if (initialProject && typeof initialProject !== 'string') {
       setEditedProject(initialProject);
     }
   }, [initialProject]);
 
   const handleClose = () => {
-    setModalState('projectForm', { isOpen: false, data: null });
+    actions.closeProjectModal();
     setEditedProject(null);
   };
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setActiveTab(newValue);
+  };
+
+  const handleProjectUpdate = (updates: Partial<Project>) => {
+    if (!editedProject || !('phases' in editedProject)) return;
+    setEditedProject({
+      ...editedProject,
+      ...updates
+    });
   };
 
   if (!editedProject) {
@@ -134,7 +139,12 @@ export const ProjectEditModalV2: React.FC = () => {
           <Typography>Status & Milestones content coming soon...</Typography>
         </TabPanel>
         <TabPanel value={activeTab} index={2}>
-          <Typography>Financial Details content coming soon...</Typography>
+          {'phases' in editedProject && (
+            <FinancialDetailsTab
+              project={editedProject}
+              onUpdate={handleProjectUpdate}
+            />
+          )}
         </TabPanel>
       </DialogContent>
       <DialogActions>
