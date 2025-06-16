@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography, Button, Paper, Grid, CircularProgress, Alert } from '@mui/material';
 import { useCapExStore } from '../stores/capexStore';
-import { ProjectEditModalV2 } from '../components/capex/ProjectModalV2';
+import { ProjectModalV3 } from '../components/capex/ProjectModalV3';
+import { ProjectCardV2 } from '../components/capex/ProjectCardV2';
 import ProjectRow from '../components/capex/ProjectRow';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { BarChart2, Eye, EyeOff, Settings, AlertTriangle, Plus } from 'lucide-react';
-import { CapExRecord, AdminSettings } from '../types/capex';
+import { CapExRecord, AdminSettings, CapexProject } from '../types/capex';
 import { Project } from '../components/capex/data/capexData';
 import { AdminConfig } from '../components/capex/admin/AdminConfig';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../utils/projectUtils';
@@ -15,6 +16,44 @@ import { ExtendedThresholdSettings } from '../components/capex/admin/AdminConfig
 import { ExecutiveBanner } from '../components/capex/ExecutiveBanner';
 import { ViewControls } from '../components/capex/ViewControls';
 import { ProjectCard } from '../components/capex/ProjectCard';
+
+// Helper function to convert Project to CapexProject
+const convertToCapexProject = (project: Project): CapexProject => {
+  // Helper function to safely convert dates
+  const toDateString = (date: Date | string | undefined): string => {
+    if (!date) return '';
+    if (typeof date === 'string') return date;
+    if (date instanceof Date) return date.toISOString();
+    return '';
+  };
+
+  return {
+    id: project.id,
+    name: project.name,
+    type: project.type,
+    owner: project.owner,
+    status: project.status,
+    budget: project.budget,
+    spent: project.spent,
+    overallCompletion: project.overallCompletion || 0,
+    timeline: project.timeline,
+    phases: project.phases || {},
+    
+    // Handle dates safely
+    startDate: toDateString(project.startDate),
+    endDate: toDateString(project.endDate),
+    lastUpdated: toDateString(project.lastUpdated),
+    
+    // Add any new fields with defaults
+    sesNumber: project.sesNumber || '',
+    costCenter: project.costCenter || '',
+    financialNotes: project.financialNotes || '',
+    expectedROI: project.expectedROI || '',
+    paybackPeriod: project.paybackPeriod || '',
+    approvalStatus: project.approvalStatus || 'pending',
+    milestones: project.milestones || {},
+  };
+};
 
 const KPIOverviewPageContent: React.FC = () => {
   const projects = useCapExStore(state => state.projects);
@@ -109,6 +148,12 @@ const KPIOverviewPageContent: React.FC = () => {
   const handleTestError = () => {
     throw new Error('Test Component Error');
   };
+
+  // Add filtered projects logic
+  const filteredProjects = projects.filter(project => 
+    project.projectName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    project.projectOwner.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (loading) {
     return (
@@ -206,10 +251,10 @@ const KPIOverviewPageContent: React.FC = () => {
           gap: 3,
           mb: 3
         }}>
-          {projects.map((project) => (
-            <ProjectCard
+          {filteredProjects.map((project) => (
+            <ProjectCardV2
               key={project.id}
-              project={project}
+              project={convertToCapexProject(project)}
               showFinancials={showFinancials}
             />
           ))}
@@ -218,7 +263,7 @@ const KPIOverviewPageContent: React.FC = () => {
         // Table View - Your existing layout
         <Paper sx={{ p: 2, mb: 3 }}>
           <Grid container spacing={2}>
-            {projects.map((project) => (
+            {filteredProjects.map((project) => (
               <Grid item xs={12} key={project.id}>
                 <ProjectRow
                   project={project}
@@ -236,7 +281,13 @@ const KPIOverviewPageContent: React.FC = () => {
         onUpdate={handleAdminConfigUpdate}
       />
 
-      <ProjectEditModalV2 />
+      {modalState.isOpen && modalState.data && typeof modalState.data !== 'string' && (
+        <ProjectModalV3
+          open={modalState.isOpen}
+          onClose={closeProjectModal}
+          project={convertToCapexProject(modalState.data)}
+        />
+      )}
     </Box>
   );
 };

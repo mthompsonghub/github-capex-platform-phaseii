@@ -314,4 +314,42 @@ export interface AdminSettings {
   atRiskThreshold: number;
   impactedThreshold: number;
   showFinancials: boolean;
+}
+
+export interface CapexProject {
+  id: string;
+  name: string;
+  type: string;
+  owner: string;
+  status: string;
+  budget: number;
+  spent: number;
+  overallCompletion: number;
+  timeline?: string;
+  phases: {
+    [key: string]: {
+      name: string;
+      weight: number;
+      completion: number;
+      subItems: {
+        [key: string]: {
+          name: string;
+          value: number;
+          isNA: boolean;
+        };
+      };
+    };
+  };
+  // Financial Details
+  sesNumber?: string;
+  costCenter?: string;
+  financialNotes?: string;
+  expectedROI?: string;
+  paybackPeriod?: string;
+  approvalStatus?: 'pending' | 'approved' | 'conditional' | 'rejected';
+
+  // Milestones by phase
+  milestones?: {
+    [key: string]: string;
+  };
 } 
