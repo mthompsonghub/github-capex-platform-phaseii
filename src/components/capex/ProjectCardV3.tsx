@@ -36,12 +36,12 @@ export function ProjectCardV3({ project, showFinancials }: ProjectCardV3Props) {
       projectName: project.name,
       projectOwner: project.owner,
       projectType: {
-        id: project.type === 'project' ? 'projects' : 'asset_purchases',
-        name: project.type === 'project' ? 'Complex Project' : 'Asset Purchase',
+        id: project.type === 'Complex Project' ? 'projects' : 'asset_purchases',
+        name: project.type,
         phaseWeights: {
-          feasibility: project.type === 'project' ? 15 : 0,
-          planning: project.type === 'project' ? 35 : 45,
-          execution: project.type === 'project' ? 45 : 50,
+          feasibility: project.type === 'Complex Project' ? 15 : 0,
+          planning: project.type === 'Complex Project' ? 35 : 45,
+          execution: project.type === 'Complex Project' ? 45 : 50,
           close: 5
         }
       },
@@ -57,104 +57,104 @@ export function ProjectCardV3({ project, showFinancials }: ProjectCardV3Props) {
         feasibility: {
           id: 'feasibility',
           name: 'Feasibility',
-          weight: project.type === 'project' ? 15 : 0,
+          weight: project.type === 'Complex Project' ? 15 : 0,
           completion: project.phases?.feasibility?.completion || 0,
           subItems: {
             riskAssessment: {
               name: 'Risk Assessment',
-              value: project.phases?.feasibility?.subItems?.riskAssessment?.value || 0,
-              isNA: project.phases?.feasibility?.subItems?.riskAssessment?.isNA || false
+              value: Number(project.phases?.feasibility?.items?.find(item => item.name === 'Risk Assessment')?.value || 0),
+              isNA: project.phases?.feasibility?.items?.find(item => item.name === 'Risk Assessment')?.isNA || false
             },
             projectCharter: {
               name: 'Project Charter',
-              value: project.phases?.feasibility?.subItems?.projectCharter?.value || 0,
-              isNA: project.phases?.feasibility?.subItems?.projectCharter?.isNA || false
+              value: Number(project.phases?.feasibility?.items?.find(item => item.name === 'Project Charter')?.value || 0),
+              isNA: project.phases?.feasibility?.items?.find(item => item.name === 'Project Charter')?.isNA || false
             }
           }
         },
         planning: {
           id: 'planning',
           name: 'Planning',
-          weight: project.type === 'project' ? 35 : 45,
+          weight: project.type === 'Complex Project' ? 35 : 45,
           completion: project.phases?.planning?.completion || 0,
           subItems: {
             rfqPackage: {
               name: 'RFQ Package',
-              value: project.phases?.planning?.subItems?.rfqPackage?.value || 0,
-              isNA: project.phases?.planning?.subItems?.rfqPackage?.isNA || false
+              value: Number(project.phases?.planning?.items?.find(item => item.name === 'RFQ Package')?.value || 0),
+              isNA: project.phases?.planning?.items?.find(item => item.name === 'RFQ Package')?.isNA || false
             },
             validationStrategy: {
               name: 'Validation Strategy',
-              value: project.phases?.planning?.subItems?.validationStrategy?.value || 0,
-              isNA: project.phases?.planning?.subItems?.validationStrategy?.isNA || false
+              value: Number(project.phases?.planning?.items?.find(item => item.name === 'Validation Strategy')?.value || 0),
+              isNA: project.phases?.planning?.items?.find(item => item.name === 'Validation Strategy')?.isNA || false
             },
             financialForecast: {
               name: 'Financial Forecast',
-              value: project.phases?.planning?.subItems?.financialForecast?.value || 0,
-              isNA: project.phases?.planning?.subItems?.financialForecast?.isNA || false
+              value: Number(project.phases?.planning?.items?.find(item => item.name === 'Financial Forecast')?.value || 0),
+              isNA: project.phases?.planning?.items?.find(item => item.name === 'Financial Forecast')?.isNA || false
             },
             vendorSolicitation: {
               name: 'Vendor Solicitation',
-              value: project.phases?.planning?.subItems?.vendorSolicitation?.value || 0,
-              isNA: project.phases?.planning?.subItems?.vendorSolicitation?.isNA || false
+              value: Number(project.phases?.planning?.items?.find(item => item.name === 'Vendor Solicitation')?.value || 0),
+              isNA: project.phases?.planning?.items?.find(item => item.name === 'Vendor Solicitation')?.isNA || false
             },
             ganttChart: {
               name: 'Gantt Chart',
-              value: project.phases?.planning?.subItems?.ganttChart?.value || 0,
-              isNA: project.phases?.planning?.subItems?.ganttChart?.isNA || false
+              value: Number(project.phases?.planning?.items?.find(item => item.name === 'Gantt Chart')?.value || 0),
+              isNA: project.phases?.planning?.items?.find(item => item.name === 'Gantt Chart')?.isNA || false
             },
             sesAssetNumberApproval: {
               name: 'SES Asset Number Approval',
-              value: project.phases?.planning?.subItems?.sesAssetNumberApproval?.value || 0,
-              isNA: project.phases?.planning?.subItems?.sesAssetNumberApproval?.isNA || false
+              value: Number(project.phases?.planning?.items?.find(item => item.name === 'SES Asset Number Approval')?.value || 0),
+              isNA: project.phases?.planning?.items?.find(item => item.name === 'SES Asset Number Approval')?.isNA || false
             }
           }
         },
         execution: {
           id: 'execution',
           name: 'Execution',
-          weight: project.type === 'project' ? 45 : 50,
+          weight: project.type === 'Complex Project' ? 45 : 50,
           completion: project.phases?.execution?.completion || 0,
           subItems: {
             poSubmission: {
               name: 'PO Submission',
-              value: project.phases?.execution?.subItems?.poSubmission?.value || 0,
-              isNA: project.phases?.execution?.subItems?.poSubmission?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'PO Submission')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'PO Submission')?.isNA || false
             },
             equipmentDesign: {
               name: 'Equipment Design',
-              value: project.phases?.execution?.subItems?.equipmentDesign?.value || 0,
-              isNA: project.phases?.execution?.subItems?.equipmentDesign?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Equipment Design')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Equipment Design')?.isNA || false
             },
             equipmentBuild: {
               name: 'Equipment Build',
-              value: project.phases?.execution?.subItems?.equipmentBuild?.value || 0,
-              isNA: project.phases?.execution?.subItems?.equipmentBuild?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Equipment Build')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Equipment Build')?.isNA || false
             },
             projectDocumentation: {
               name: 'Project Documentation',
-              value: project.phases?.execution?.subItems?.projectDocumentation?.value || 0,
-              isNA: project.phases?.execution?.subItems?.projectDocumentation?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Project Documentation')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Project Documentation')?.isNA || false
             },
             demoInstall: {
               name: 'Demo Install',
-              value: project.phases?.execution?.subItems?.demoInstall?.value || 0,
-              isNA: project.phases?.execution?.subItems?.demoInstall?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Demo Install')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Demo Install')?.isNA || false
             },
             validation: {
               name: 'Validation',
-              value: project.phases?.execution?.subItems?.validation?.value || 0,
-              isNA: project.phases?.execution?.subItems?.validation?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Validation')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Validation')?.isNA || false
             },
             equipmentTurnover: {
               name: 'Equipment Turnover',
-              value: project.phases?.execution?.subItems?.equipmentTurnover?.value || 0,
-              isNA: project.phases?.execution?.subItems?.equipmentTurnover?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Equipment Turnover')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Equipment Turnover')?.isNA || false
             },
             goLive: {
               name: 'Go Live',
-              value: project.phases?.execution?.subItems?.goLive?.value || 0,
-              isNA: project.phases?.execution?.subItems?.goLive?.isNA || false
+              value: Number(project.phases?.execution?.items?.find(item => item.name === 'Go Live')?.value || 0),
+              isNA: project.phases?.execution?.items?.find(item => item.name === 'Go Live')?.isNA || false
             }
           }
         },
@@ -166,13 +166,13 @@ export function ProjectCardV3({ project, showFinancials }: ProjectCardV3Props) {
           subItems: {
             poClosure: {
               name: 'PO Closure',
-              value: project.phases?.close?.subItems?.poClosure?.value || 0,
-              isNA: project.phases?.close?.subItems?.poClosure?.isNA || false
+              value: Number(project.phases?.close?.items?.find(item => item.name === 'PO Closure')?.value || 0),
+              isNA: project.phases?.close?.items?.find(item => item.name === 'PO Closure')?.isNA || false
             },
             projectTurnover: {
               name: 'Project Turnover',
-              value: project.phases?.close?.subItems?.projectTurnover?.value || 0,
-              isNA: project.phases?.close?.subItems?.projectTurnover?.isNA || false
+              value: Number(project.phases?.close?.items?.find(item => item.name === 'Project Turnover')?.value || 0),
+              isNA: project.phases?.close?.items?.find(item => item.name === 'Project Turnover')?.isNA || false
             }
           }
         }
@@ -189,12 +189,7 @@ export function ProjectCardV3({ project, showFinancials }: ProjectCardV3Props) {
       timeline: project.timeline,
       sesNumber: project.sesNumber,
       financialNotes: project.financialNotes,
-      milestones: {
-        feasibility: project.milestones?.feasibility || '',
-        planning: project.milestones?.planning || '',
-        execution: project.milestones?.execution || '',
-        close: project.milestones?.close || ''
-      }
+      upcomingMilestone: project.upcomingMilestone
     };
     
     openProjectModal(projectData);
@@ -311,15 +306,10 @@ export function ProjectCardV3({ project, showFinancials }: ProjectCardV3Props) {
           </Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
             <Chip
-              label={project.type === 'project' ? 'Project' : 'Asset'}
+              label={project.type === 'Complex Project' ? 'Project' : 'Asset'}
+              color={project.type === 'Complex Project' ? 'primary' : 'secondary'}
               size="small"
-              sx={{
-                height: 22,
-                fontSize: '0.7rem',
-                backgroundColor: project.type === 'project' ? 'primary.100' : 'secondary.100',
-                color: project.type === 'project' ? 'primary.main' : 'secondary.main',
-                fontWeight: 600,
-              }}
+              sx={{ mr: 1 }}
             />
             <IconButton
               size="small"
@@ -421,7 +411,7 @@ export function ProjectCardV3({ project, showFinancials }: ProjectCardV3Props) {
               {project.timeline || 'TBD'}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Milestone: {project.milestones?.execution || project.milestones?.planning || 'Not set'}
+              Milestone: {project.upcomingMilestone || 'Not set'}
             </Typography>
           </Box>
         </Box>

@@ -310,46 +310,142 @@ export interface ModalState<T> {
 }
 
 export interface AdminSettings {
-  onTrackThreshold: number;
-  atRiskThreshold: number;
-  impactedThreshold: number;
-  showFinancials: boolean;
+  thresholds: {
+    onTrack: number;
+    atRisk: number;
+  };
+  phaseWeights: {
+    complexProject: {
+      feasibility: number;
+      planning: number;
+      execution: number;
+      close: number;
+    };
+    assetPurchase: {
+      planning: number;
+      execution: number;
+      close: number;
+    };
+  };
 }
 
 export interface CapexProject {
   id: string;
   name: string;
-  type: string;
+  type: 'Complex Project' | 'Asset Purchase';
   owner: string;
-  status: string;
+  status: 'On Track' | 'At Risk' | 'Impacted';
   budget: number;
   spent: number;
   overallCompletion: number;
-  timeline?: string;
   phases: {
-    [key: string]: {
-      name: string;
-      weight: number;
-      completion: number;
-      subItems: {
-        [key: string]: {
-          name: string;
-          value: number;
-          isNA: boolean;
-        };
-      };
-    };
+    feasibility?: Phase;
+    planning?: Phase;
+    execution?: Phase;
+    close?: Phase;
   };
-  // Financial Details
+  timeline?: string;
+  upcomingMilestone?: string;
   sesNumber?: string;
-  costCenter?: string;
   financialNotes?: string;
-  expectedROI?: string;
-  paybackPeriod?: string;
-  approvalStatus?: 'pending' | 'approved' | 'conditional' | 'rejected';
+  
+  // Phase dates for schedule adherence
+  feasibilityStartDate?: string;
+  feasibilityEndDate?: string;
+  planningStartDate?: string;
+  planningEndDate?: string;
+  executionStartDate?: string;
+  executionEndDate?: string;
+  closeStartDate?: string;
+  closeEndDate?: string;
+  
+  // Computed fields
+  scheduleAdherence?: ScheduleAdherence;
+  lastUpdated?: string;
+}
 
-  // Milestones by phase
-  milestones?: {
-    [key: string]: string;
+export interface Phase {
+  name: string;
+  weight: number;
+  completion: number;
+  items: PhaseItem[];
+}
+
+export interface PhaseItem {
+  name: string;
+  value: string | number;
+  isNA?: boolean;
+}
+
+// New interface for schedule adherence calculations
+export interface ScheduleAdherence {
+  overall: number;
+  byPhase: {
+    feasibility: number;
+    planning: number;
+    execution: number;
+    close: number;
   };
+}
+
+// Database record interface (snake_case)
+export interface CapExRecord {
+  id: string;
+  project_name: string;
+  project_type: 'Complex Project' | 'Asset Purchase';
+  owner_name: string;
+  project_status: string;
+  total_budget: number;
+  total_actual: number;
+  overall_completion: number;
+  phases_data?: any;
+  timeline: string;
+  upcoming_milestone: string;
+  ses_number: string;
+  financial_notes: string;
+  
+  // Phase dates (snake_case for DB)
+  feasibility_start_date: string;
+  feasibility_end_date: string;
+  planning_start_date: string;
+  planning_end_date: string;
+  execution_start_date: string;
+  execution_end_date: string;
+  close_start_date: string;
+  close_end_date: string;
+  
+  created_at: string;
+  updated_at: string;
+}
+
+// Project type from legacy data structure (to be phased out)
+export interface Project {
+  id: string;
+  name: string;
+  type: 'Complex Project' | 'Asset Purchase';
+  owner: string;
+  status: 'On Track' | 'At Risk' | 'Impacted';
+  budget: number;
+  spent: number;
+  timeline: string;
+  overallCompletion: number;
+  phases?: {
+    feasibility?: Phase;
+    planning?: Phase;
+    execution?: Phase;
+    close?: Phase;
+  };
+  upcomingMilestone?: string;
+  sesNumber?: string;
+  financialNotes?: string;
+  
+  // Add phase dates for backward compatibility
+  feasibilityStartDate?: string;
+  feasibilityEndDate?: string;
+  planningStartDate?: string;
+  planningEndDate?: string;
+  executionStartDate?: string;
+  executionEndDate?: string;
+  closeStartDate?: string;
+  closeEndDate?: string;
 } 

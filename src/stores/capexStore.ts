@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import { AdminSettings, ModalState, CapExRecord } from '../types/capex';
+import { AdminSettings, ModalState, CapExRecord, CapexProject } from '../types/capex';
 import { Project, PROJECT_TYPES, ProjectType } from '../components/capex/data/capexData';
 import { supabase } from '../lib/supabase';
 import { ExtendedThresholdSettings } from '../components/capex/admin/AdminConfig';
+import { calculateScheduleAdherence } from '../utils/scheduleAdherence';
+import { toast } from 'react-hot-toast';
 
 interface CapExStore {
   projects: Project[];
@@ -15,6 +17,8 @@ interface CapExStore {
     projects: { feasibility: number; planning: number; execution: number; close: number };
     asset_purchases: { feasibility: number; planning: number; execution: number; close: number };
   } | null;
+  loading: boolean;
+  error: string | null;
   actions: {
     fetchProjects: () => Promise<any[]>;
     updateProject: (project: Project) => Promise<void>;
@@ -44,6 +48,8 @@ const useStore = create<CapExStore>()(
         },
         isAdmin: false,
         phaseWeights: null,
+        loading: false,
+        error: null,
         actions: {
           async fetchProjects() {
             try {
@@ -179,22 +185,31 @@ const useStore = create<CapExStore>()(
 
               // Build admin settings object from multiple rows
               const adminSettings: AdminSettings = {
-                onTrackThreshold: 90,
-                atRiskThreshold: 80,
-                impactedThreshold: 0,
-                showFinancials: true
+                thresholds: {
+                  onTrack: 90,
+                  atRisk: 80
+                },
+                phaseWeights: {
+                  complexProject: {
+                    feasibility: 15,
+                    planning: 35,
+                    execution: 45,
+                    close: 5
+                  },
+                  assetPurchase: {
+                    planning: 45,
+                    execution: 50,
+                    close: 5
+                  }
+                }
               };
 
               if (data) {
                 data.forEach(row => {
                   if (row.setting_key === 'on_track_threshold') {
-                    adminSettings.onTrackThreshold = row.setting_value;
+                    adminSettings.thresholds.onTrack = row.setting_value;
                   } else if (row.setting_key === 'at_risk_threshold') {
-                    adminSettings.atRiskThreshold = row.setting_value;
-                  } else if (row.setting_key === 'impacted_threshold') {
-                    adminSettings.impactedThreshold = row.setting_value;
-                  } else if (row.setting_key === 'show_financials') {
-                    adminSettings.showFinancials = row.setting_value;
+                    adminSettings.thresholds.atRisk = row.setting_value;
                   }
                 });
               }
@@ -224,11 +239,6 @@ const useStore = create<CapExStore>()(
                   setting_key: 'at_risk_threshold', 
                   setting_value: settings.atRiskThreshold,
                   updated_at: new Date().toISOString()
-                },
-                {
-                  setting_key: 'impacted_threshold',
-                  setting_value: settings.impactedThreshold,
-                  updated_at: new Date().toISOString()
                 }
               ];
               
@@ -250,8 +260,38 @@ const useStore = create<CapExStore>()(
                 
                 console.log(`Saved ${update.setting_key}:`, data);
               }
+
+              // Update phase weights
+              const phaseWeightUpdates = [
+                {
+                  setting_key: 'project_phase_weights',
+                  setting_value: settings.projectWeights,
+                  updated_at: new Date().toISOString()
+                },
+                {
+                  setting_key: 'asset_phase_weights',
+                  setting_value: settings.assetWeights,
+                  updated_at: new Date().toISOString()
+                }
+              ];
+
+              for (const update of phaseWeightUpdates) {
+                const { data, error } = await supabase
+                  .from('capex_system_settings')
+                  .upsert(update, { 
+                    onConflict: 'setting_key'
+                  })
+                  .select('*');
+                  
+                if (error) {
+                  console.error(`Error saving ${update.setting_key}:`, error);
+                  throw error;
+                }
+                
+                console.log(`Saved ${update.setting_key}:`, data);
+              }
               
-              console.log('All thresholds saved successfully');
+              console.log('All settings saved successfully');
               
             } catch (error) {
               console.error('Error updating admin settings:', error);
@@ -460,6 +500,59 @@ const calculateOverallCompletion = (phases: any): number => {
   const totalWeight = Object.values(phases).reduce((sum: number, phase: any) => sum + phase.weight, 0);
   const weightedCompletion = Object.values(phases).reduce((sum: number, phase: any) => sum + (phase.completion * phase.weight), 0);
   return Math.round(weightedCompletion / totalWeight);
+};
+
+// Helper function to map database project types to UI types
+const mapProjectType = (dbType: string): 'Complex Project' | 'Asset Purchase' => {
+  console.log('🔍 Mapping project type:', dbType);
+  
+  if (dbType === 'projects' || dbType === 'Complex Project') {
+    return 'Complex Project';
+  } else if (dbType === 'asset_purchases' || dbType === 'Asset Purchase') {
+    return 'Asset Purchase';
+  }
+  
+  // Default fallback
+  console.warn('⚠️ Unknown project type:', dbType, 'defaulting to Complex Project');
+  return 'Complex Project';
+};
+
+// Make sure transformDbToProject uses the mapping:
+const transformDbToProject = (record: any): CapexProject => {
+  const project: CapexProject = {
+    id: record.id,
+    name: record.project_name,
+    type: mapProjectType(record.project_type), // USE THE MAPPING HERE
+    owner: record.owner_name || record.project_owner, // Handle both field names
+    status: record.project_status as 'On Track' | 'At Risk' | 'Impacted',
+    budget: record.total_budget || 0,
+    spent: record.total_actual || 0,
+    overallCompletion: record.overall_completion || 0,
+    timeline: record.timeline || '',
+    upcomingMilestone: record.upcoming_milestone || '',
+    sesNumber: record.ses_number || '',
+    financialNotes: record.financial_notes || '',
+    phases: record.phases_data || {},
+    
+    // Phase dates
+    feasibilityStartDate: record.feasibility_start_date || undefined,
+    feasibilityEndDate: record.feasibility_end_date || undefined,
+    planningStartDate: record.planning_start_date || undefined,
+    planningEndDate: record.planning_end_date || undefined,
+    executionStartDate: record.execution_start_date || undefined,
+    executionEndDate: record.execution_end_date || undefined,
+    closeStartDate: record.close_start_date || undefined,
+    closeEndDate: record.close_end_date || undefined,
+    
+    lastUpdated: record.updated_at || record.created_at || new Date().toISOString(),
+  };
+  
+  // Calculate schedule adherence
+  if (calculateScheduleAdherence) {
+    project.scheduleAdherence = calculateScheduleAdherence(project);
+  }
+  
+  return project;
 };
 
 const transformDbProjectToProject = (dbProject: any): Project => {
