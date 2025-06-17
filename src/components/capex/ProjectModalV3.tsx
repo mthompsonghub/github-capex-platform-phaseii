@@ -37,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import { CapexProject } from '../../types/capex';
 import { useCapExStore } from '../../stores/capexStore';
+import { createEmptyFeasibilityPhase, createEmptyPlanningPhase, createEmptyExecutionPhase, createEmptyClosePhase, PHASE_SUB_ITEMS, FeasibilityPhase, PlanningPhase, ExecutionPhase, ClosePhase, Project, DetailedSubItem } from './data/capexData';
 
 interface ProjectModalV3Props {
   open: boolean;
@@ -107,7 +108,11 @@ export function ProjectModalV3({ open, onClose, project }: ProjectModalV3Props) 
 
   useEffect(() => {
     if (project) {
-      setEditedProject({ ...project });
+      setEditedProject({ 
+        ...project,
+        // Ensure status has a default value
+        status: project.status || 'on-track'
+      });
     }
   }, [project]);
 
@@ -119,7 +124,174 @@ export function ProjectModalV3({ open, onClose, project }: ProjectModalV3Props) 
 
   const handleSave = async () => {
     if (editedProject) {
-      await updateProject(editedProject);
+      // Convert CapexProject to Project
+      const projectToUpdate: Project = {
+        id: editedProject.id,
+        projectName: editedProject.name,
+        projectOwner: editedProject.owner,
+        startDate: new Date(),
+        endDate: new Date(),
+        projectType: {
+          id: editedProject.type === 'project' ? 'projects' : 'asset_purchases',
+          name: editedProject.type === 'project' ? 'Projects' : 'Asset Purchases',
+          phaseWeights: {
+            feasibility: 15,
+            planning: 35,
+            execution: 45,
+            close: 5
+          }
+        },
+        totalBudget: editedProject.budget,
+        totalActual: editedProject.spent,
+        projectStatus: editedProject.status.charAt(0).toUpperCase() + editedProject.status.slice(1).replace('-', ' ') as 'On Track' | 'At Risk' | 'Impacted',
+        phases: {
+          feasibility: {
+            id: 'feasibility',
+            name: 'Feasibility',
+            weight: 15,
+            completion: editedProject.phases.feasibility?.completion || 0,
+            subItems: {
+              riskAssessment: {
+                name: PHASE_SUB_ITEMS.feasibility[0].name,
+                value: editedProject.phases.feasibility?.subItems?.riskAssessment?.value || 0,
+                isNA: editedProject.phases.feasibility?.subItems?.riskAssessment?.isNA || false
+              } as DetailedSubItem,
+              projectCharter: {
+                name: PHASE_SUB_ITEMS.feasibility[1].name,
+                value: editedProject.phases.feasibility?.subItems?.projectCharter?.value || 0,
+                isNA: editedProject.phases.feasibility?.subItems?.projectCharter?.isNA || false
+              } as DetailedSubItem
+            }
+          } as FeasibilityPhase,
+          planning: {
+            id: 'planning',
+            name: 'Planning',
+            weight: 35,
+            completion: editedProject.phases.planning?.completion || 0,
+            subItems: {
+              rfqPackage: {
+                name: PHASE_SUB_ITEMS.planning[0].name,
+                value: editedProject.phases.planning?.subItems?.rfqPackage?.value || 0,
+                isNA: editedProject.phases.planning?.subItems?.rfqPackage?.isNA || false
+              } as DetailedSubItem,
+              validationStrategy: {
+                name: PHASE_SUB_ITEMS.planning[1].name,
+                value: editedProject.phases.planning?.subItems?.validationStrategy?.value || 0,
+                isNA: editedProject.phases.planning?.subItems?.validationStrategy?.isNA || false
+              } as DetailedSubItem,
+              financialForecast: {
+                name: PHASE_SUB_ITEMS.planning[2].name,
+                value: editedProject.phases.planning?.subItems?.financialForecast?.value || 0,
+                isNA: editedProject.phases.planning?.subItems?.financialForecast?.isNA || false
+              } as DetailedSubItem,
+              vendorSolicitation: {
+                name: PHASE_SUB_ITEMS.planning[3].name,
+                value: editedProject.phases.planning?.subItems?.vendorSolicitation?.value || 0,
+                isNA: editedProject.phases.planning?.subItems?.vendorSolicitation?.isNA || false
+              } as DetailedSubItem,
+              ganttChart: {
+                name: PHASE_SUB_ITEMS.planning[4].name,
+                value: editedProject.phases.planning?.subItems?.ganttChart?.value || 0,
+                isNA: editedProject.phases.planning?.subItems?.ganttChart?.isNA || false
+              } as DetailedSubItem,
+              sesAssetNumberApproval: {
+                name: PHASE_SUB_ITEMS.planning[5].name,
+                value: editedProject.phases.planning?.subItems?.sesAssetNumberApproval?.value || 0,
+                isNA: editedProject.phases.planning?.subItems?.sesAssetNumberApproval?.isNA || false
+              } as DetailedSubItem
+            }
+          } as PlanningPhase,
+          execution: {
+            id: 'execution',
+            name: 'Execution',
+            weight: 45,
+            completion: editedProject.phases.execution?.completion || 0,
+            subItems: {
+              poSubmission: {
+                name: PHASE_SUB_ITEMS.execution[0].name,
+                value: editedProject.phases.execution?.subItems?.poSubmission?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.poSubmission?.isNA || false
+              } as DetailedSubItem,
+              equipmentDesign: {
+                name: PHASE_SUB_ITEMS.execution[1].name,
+                value: editedProject.phases.execution?.subItems?.equipmentDesign?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.equipmentDesign?.isNA || false
+              } as DetailedSubItem,
+              equipmentBuild: {
+                name: PHASE_SUB_ITEMS.execution[2].name,
+                value: editedProject.phases.execution?.subItems?.equipmentBuild?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.equipmentBuild?.isNA || false
+              } as DetailedSubItem,
+              projectDocumentation: {
+                name: PHASE_SUB_ITEMS.execution[3].name,
+                value: editedProject.phases.execution?.subItems?.projectDocumentation?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.projectDocumentation?.isNA || false
+              } as DetailedSubItem,
+              demoInstall: {
+                name: PHASE_SUB_ITEMS.execution[4].name,
+                value: editedProject.phases.execution?.subItems?.demoInstall?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.demoInstall?.isNA || false
+              } as DetailedSubItem,
+              validation: {
+                name: PHASE_SUB_ITEMS.execution[5].name,
+                value: editedProject.phases.execution?.subItems?.validation?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.validation?.isNA || false
+              } as DetailedSubItem,
+              equipmentTurnover: {
+                name: PHASE_SUB_ITEMS.execution[6].name,
+                value: editedProject.phases.execution?.subItems?.equipmentTurnover?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.equipmentTurnover?.isNA || false
+              } as DetailedSubItem,
+              goLive: {
+                name: PHASE_SUB_ITEMS.execution[7].name,
+                value: editedProject.phases.execution?.subItems?.goLive?.value || 0,
+                isNA: editedProject.phases.execution?.subItems?.goLive?.isNA || false
+              } as DetailedSubItem
+            }
+          } as ExecutionPhase,
+          close: {
+            id: 'close',
+            name: 'Close',
+            weight: 5,
+            completion: editedProject.phases.close?.completion || 0,
+            subItems: {
+              poClosure: {
+                name: PHASE_SUB_ITEMS.close[0].name,
+                value: editedProject.phases.close?.subItems?.poClosure?.value || 0,
+                isNA: editedProject.phases.close?.subItems?.poClosure?.isNA || false
+              } as DetailedSubItem,
+              projectTurnover: {
+                name: PHASE_SUB_ITEMS.close[1].name,
+                value: editedProject.phases.close?.subItems?.projectTurnover?.value || 0,
+                isNA: editedProject.phases.close?.subItems?.projectTurnover?.isNA || false
+              } as DetailedSubItem
+            }
+          } as ClosePhase
+        },
+        comments: '',
+        lastUpdated: new Date(),
+        sesNumber: editedProject.sesNumber,
+        upcomingMilestone: editedProject.milestones?.feasibility || '',
+        financialNotes: editedProject.financialNotes,
+        
+        // Additional fields for CapexProject compatibility
+        name: editedProject.name,
+        owner: editedProject.owner,
+        type: editedProject.type,
+        status: editedProject.status,
+        budget: editedProject.budget,
+        spent: editedProject.spent,
+        overallCompletion: editedProject.overallCompletion,
+        timeline: editedProject.timeline,
+        milestones: {
+          feasibility: editedProject.milestones?.feasibility || '',
+          planning: editedProject.milestones?.planning || '',
+          execution: editedProject.milestones?.execution || '',
+          close: editedProject.milestones?.close || ''
+        }
+      };
+      
+      await updateProject(projectToUpdate);
       onClose();
     }
   };
@@ -221,10 +393,10 @@ export function ProjectModalV3({ open, onClose, project }: ProjectModalV3Props) 
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Chip
-            icon={getStatusIcon(editedProject.status)}
-            label={editedProject.status.replace('-', ' ').toUpperCase()}
+            icon={getStatusIcon(editedProject.status || 'on-track')}
+            label={(editedProject.status || 'on-track').replace('-', ' ').toUpperCase()}
             sx={{
-              backgroundColor: getStatusColor(editedProject.status),
+              backgroundColor: getStatusColor(editedProject.status || 'on-track'),
               color: 'white',
               fontWeight: 600,
               '& .MuiChip-icon': { color: 'white' },

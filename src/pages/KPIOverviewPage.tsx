@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Box, Typography, Button, Paper, Grid, CircularProgress, Alert } from '@mui/material';
 import { useCapExStore } from '../stores/capexStore';
 import { ProjectModalV3 } from '../components/capex/ProjectModalV3';
-import { ProjectCardV2 } from '../components/capex/ProjectCardV2';
-import ProjectRow from '../components/capex/ProjectRow';
+import { ProjectCardV3 } from '../components/capex/ProjectCardV3';
+import { ProjectTableView } from '../components/capex/ProjectTableView';
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 import { BarChart2, Eye, EyeOff, Settings, AlertTriangle, Plus } from 'lucide-react';
@@ -19,14 +19,6 @@ import { ProjectCard } from '../components/capex/ProjectCard';
 
 // Helper function to convert Project to CapexProject
 const convertToCapexProject = (project: Project): CapexProject => {
-  // Helper function to safely convert dates
-  const toDateString = (date: Date | string | undefined): string => {
-    if (!date) return '';
-    if (typeof date === 'string') return date;
-    if (date instanceof Date) return date.toISOString();
-    return '';
-  };
-
   return {
     id: project.id,
     name: project.name,
@@ -35,23 +27,14 @@ const convertToCapexProject = (project: Project): CapexProject => {
     status: project.status,
     budget: project.budget,
     spent: project.spent,
-    overallCompletion: project.overallCompletion || 0,
+    overallCompletion: project.overallCompletion,
     timeline: project.timeline,
-    phases: project.phases || {},
+    phases: project.phases,
     
-    // Handle dates safely
-    startDate: toDateString(project.startDate),
-    endDate: toDateString(project.endDate),
-    lastUpdated: toDateString(project.lastUpdated),
-    
-    // Add any new fields with defaults
-    sesNumber: project.sesNumber || '',
-    costCenter: project.costCenter || '',
-    financialNotes: project.financialNotes || '',
-    expectedROI: project.expectedROI || '',
-    paybackPeriod: project.paybackPeriod || '',
-    approvalStatus: project.approvalStatus || 'pending',
-    milestones: project.milestones || {},
+    // Optional fields that exist in Project type
+    sesNumber: project.sesNumber,
+    financialNotes: project.financialNotes,
+    milestones: project.milestones
   };
 };
 
@@ -239,20 +222,9 @@ const KPIOverviewPageContent: React.FC = () => {
       />
 
       {viewMode === 'card' ? (
-        // Card View - Responsive Grid
-        <Box sx={{
-          display: 'grid',
-          gridTemplateColumns: {
-            xs: '1fr',
-            sm: 'repeat(2, 1fr)', 
-            lg: 'repeat(3, 1fr)',
-            xl: 'repeat(auto-fit, minmax(380px, 1fr))'
-          },
-          gap: 3,
-          mb: 3
-        }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 3 }}>
           {filteredProjects.map((project) => (
-            <ProjectCardV2
+            <ProjectCardV3
               key={project.id}
               project={convertToCapexProject(project)}
               showFinancials={showFinancials}
@@ -260,19 +232,14 @@ const KPIOverviewPageContent: React.FC = () => {
           ))}
         </Box>
       ) : (
-        // Table View - Your existing layout
-        <Paper sx={{ p: 2, mb: 3 }}>
-          <Grid container spacing={2}>
-            {filteredProjects.map((project) => (
-              <Grid item xs={12} key={project.id}>
-                <ProjectRow
-                  project={project}
-                  showFinancials={showFinancials}
-                />
-              </Grid>
-            ))}
-          </Grid>
-        </Paper>
+        <ProjectTableView
+          projects={filteredProjects.map(p => convertToCapexProject(p))}
+          showFinancials={showFinancials}
+          onProjectClick={(project) => {
+            const proj = filteredProjects.find(p => p.id === project.id);
+            if (proj) handleProjectUpdate(proj);
+          }}
+        />
       )}
 
       <AdminConfig 

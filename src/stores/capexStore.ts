@@ -455,6 +455,13 @@ const createDefaultPhases = () => ({
   }
 });
 
+// Helper function to calculate overall completion from phases
+const calculateOverallCompletion = (phases: any): number => {
+  const totalWeight = Object.values(phases).reduce((sum: number, phase: any) => sum + phase.weight, 0);
+  const weightedCompletion = Object.values(phases).reduce((sum: number, phase: any) => sum + (phase.completion * phase.weight), 0);
+  return Math.round(weightedCompletion / totalWeight);
+};
+
 const transformDbProjectToProject = (dbProject: any): Project => {
   // Parse phases data from JSON or create default
   let phases;
@@ -521,6 +528,9 @@ const transformDbProjectToProject = (dbProject: any): Project => {
     phases = createDefaultPhases();
   }
 
+  // Calculate overall completion from phases
+  const overallCompletion = calculateOverallCompletion(phases);
+
   return {
     id: dbProject.id,
     projectName: dbProject.project_name || '',
@@ -533,7 +543,27 @@ const transformDbProjectToProject = (dbProject: any): Project => {
     projectStatus: dbProject.project_status || 'On Track',
     phases: phases,
     comments: dbProject.comments || '',
-    lastUpdated: new Date(dbProject.updated_at || new Date())
+    lastUpdated: new Date(dbProject.updated_at || new Date()),
+    
+    // Additional fields for CapexProject compatibility
+    name: dbProject.project_name || '',
+    owner: dbProject.project_owner || '',
+    type: dbProject.project_type || 'project',
+    status: (dbProject.project_status || 'On Track').toLowerCase().replace(' ', '-'),
+    budget: Number(dbProject.total_budget) || 0,
+    spent: Number(dbProject.total_actual) || 0,
+    overallCompletion: overallCompletion,
+    timeline: dbProject.timeline || '',
+    
+    // Financial fields
+    sesNumber: dbProject.ses_number || '',
+    financialNotes: dbProject.financial_notes || '',
+    milestones: {
+      feasibility: dbProject.feasibility_milestone || '',
+      planning: dbProject.planning_milestone || '',
+      execution: dbProject.execution_milestone || '',
+      close: dbProject.close_milestone || ''
+    }
   };
 };
 

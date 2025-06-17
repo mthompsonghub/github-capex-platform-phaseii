@@ -114,6 +114,22 @@ export interface Project {
   upcomingMilestone?: string;
   milestoneDueDate?: Date;
   financialNotes?: string;
+  
+  // Additional fields for CapexProject compatibility
+  name: string;
+  owner: string;
+  type: string;
+  status: string;
+  budget: number;
+  spent: number;
+  overallCompletion: number;
+  timeline?: string;
+  milestones?: {
+    feasibility: string;
+    planning: string;
+    execution: string;
+    close: string;
+  };
 }
 
 // Zod Schema for Runtime Type Validation
@@ -580,7 +596,23 @@ export const createEmptyProject = (
     sesNumber: '',
     upcomingMilestone: '',
     milestoneDueDate: undefined,
-    financialNotes: ''
+    financialNotes: '',
+    
+    // Additional fields for CapexProject compatibility
+    name: '',
+    owner: '',
+    type: '',
+    status: '',
+    budget: 0,
+    spent: 0,
+    overallCompletion: 0,
+    timeline: '',
+    milestones: {
+      feasibility: '',
+      planning: '',
+      execution: '',
+      close: ''
+    }
   };
 };
 
