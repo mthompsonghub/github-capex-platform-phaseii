@@ -1,6 +1,6 @@
 // utils/scheduleAdherence.ts - Utility for calculating schedule adherence
 
-import { CapexProject, ScheduleAdherence } from '../types/capex';
+import { CapexProject, ScheduleAdherence } from '../types/capex-unified';
 import { calculateBusinessDays } from './businessDays';
 
 /**

@@ -1,26 +1,21 @@
 import React from 'react';
 import { TrendingUp, DollarSign, BarChart3, Target } from 'lucide-react';
-
-interface Project {
-  totalBudget: number;
-  totalActual: number;
-  projectStatus: string;
-}
+import { CapexProject, ProjectStatus } from '../../types/capex-unified';
 
 interface ExecutiveBannerProps {
-  projects: Project[];
+  projects: CapexProject[];
 }
 
 export const ExecutiveBanner: React.FC<ExecutiveBannerProps> = ({ projects }) => {
   // Calculate KPIs from project data
-  const totalBudget = projects.reduce((sum, project) => sum + (project.totalBudget || 0), 0);
-  const totalActual = projects.reduce((sum, project) => sum + (project.totalActual || 0), 0);
+  const totalBudget = projects.reduce((sum, project) => sum + (project.budget || 0), 0);
+  const totalActual = projects.reduce((sum, project) => sum + (project.spent || 0), 0);
   const ytdSpendPercentage = totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0;
   
   // Project status breakdown
-  const onTrackCount = projects.filter(p => p.projectStatus === 'On Track').length;
-  const atRiskCount = projects.filter(p => p.projectStatus === 'At Risk').length;
-  const impactedCount = projects.filter(p => p.projectStatus === 'Impacted').length;
+  const onTrackCount = projects.filter(p => p.status === 'On Track').length;
+  const atRiskCount = projects.filter(p => p.status === 'At Risk').length;
+  const impactedCount = projects.filter(p => p.status === 'Impacted').length;
   const totalProjects = projects.length;
   
   // Portfolio health calculation (based on project statuses)

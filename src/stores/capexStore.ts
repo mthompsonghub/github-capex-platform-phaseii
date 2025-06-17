@@ -1,17 +1,22 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
-import { AdminSettings, ModalState, CapExRecord, CapexProject } from '../types/capex';
-import { Project, PROJECT_TYPES, ProjectType } from '../components/capex/data/capexData';
+import { AdminSettings, ModalState, CapExRecord, CapexProject } from '../types/capex-unified';
+import { PROJECT_TYPES, ProjectType } from '../components/capex/data/capexData';
 import { supabase } from '../lib/supabase';
 import { ExtendedThresholdSettings } from '../components/capex/admin/AdminConfig';
 import { calculateScheduleAdherence } from '../utils/scheduleAdherence';
 import { toast } from 'react-hot-toast';
+import { 
+  CapexProjectDB, 
+  transformDbToProject, 
+  transformProjectToDb 
+} from '../utils/capexTransformations';
 
 interface CapExStore {
-  projects: Project[];
+  projects: CapexProject[];
   adminSettings: AdminSettings | null;
-  modalState: ModalState<Project | string>;
+  modalState: ModalState<CapexProject | string>;
   isAdmin: boolean;
   phaseWeights: {
     projects: { feasibility: number; planning: number; execution: number; close: number };
@@ -20,12 +25,14 @@ interface CapExStore {
   loading: boolean;
   error: string | null;
   actions: {
-    fetchProjects: () => Promise<any[]>;
-    updateProject: (project: Project) => Promise<void>;
-    fetchAdminSettings: () => Promise<AdminSettings | null>;
-    updateAdminSettings: (settings: ExtendedThresholdSettings) => Promise<void>;
+    fetchProjects: () => Promise<void>;
+    updateProject: (project: CapexProject) => Promise<void>;
+    createProject: (project: Omit<CapexProject, 'id'>) => Promise<void>;
+    deleteProject: (id: string) => Promise<void>;
+    fetchAdminSettings: () => Promise<void>;
+    updateAdminSettings: (settings: AdminSettings) => Promise<void>;
     fetchUserRole: () => Promise<string>;
-    openProjectModal: (project: Project) => void;
+    openProjectModal: (project: CapexProject) => void;
     closeProjectModal: () => void;
     setIsAdmin: (value: boolean) => void;
     openAdminModal: () => void;
@@ -52,250 +59,202 @@ const useStore = create<CapExStore>()(
         error: null,
         actions: {
           async fetchProjects() {
+            set({ loading: true, error: null });
             try {
               const { data, error } = await supabase
                 .from('capex_projects')
-                .select('*');
-
+                .select('*')
+                .order('created_at', { ascending: false });
+              
               if (error) throw error;
-
-              if (data) {
-                const transformedProjects = data.map(transformDbProjectToProject);
-                set((state) => {
-                  state.projects = transformedProjects;
-                });
-              }
-
-              return data || [];
+              
+              console.log('🔍 Raw data from Supabase:', data);
+              
+              const projects = (data || []).map(record => {
+                console.log('🔍 Transforming record:', record.project_name, 'with type:', record.project_type);
+                const transformed = transformDbToProject(record as CapexProjectDB);
+                
+                // Calculate schedule adherence if the utility is available
+                if (calculateScheduleAdherence) {
+                  transformed.scheduleAdherence = calculateScheduleAdherence(transformed);
+                }
+                
+                console.log('🔍 Transformed to:', transformed.name, 'with type:', transformed.type);
+                return transformed;
+              });
+              
+              set({ projects, loading: false });
             } catch (error) {
               console.error('Error fetching projects:', error);
-              return [];
+              set({ error: (error as Error).message, loading: false });
+              toast.error('Failed to fetch projects');
             }
           },
 
-          async updateProject(project: Project) {
-            console.log('Updating project:', project.projectName);
-            console.log('🚨 TEST LOG - If you see this, we found the right function!');
-            console.log('Financial fields:', {
-              sesNumber: project.sesNumber,
-              upcomingMilestone: project.upcomingMilestone,
-              financialNotes: project.financialNotes
-            });
+          async updateProject(project: CapexProject) {
+            set({ loading: true, error: null });
             try {
-              // Transform project data for database update
-              const dbPayload = {
-                project_name: project.projectName,
-                project_owner: project.projectOwner,
-                project_type: project.projectType.name.toLowerCase().replace(' ', '_'),
-                start_date: project.startDate,
-                end_date: project.endDate,
-                total_budget: project.totalBudget,
-                total_actual: project.totalActual,
-                project_status: project.projectStatus,
-                // Convert phases to a format suitable for JSON storage
-                phases_data: JSON.stringify({
-                  feasibility: {
-                    id: project.phases.feasibility.id,
-                    name: project.phases.feasibility.name,
-                    weight: project.phases.feasibility.weight,
-                    completion: project.phases.feasibility.completion,
-                    subItems: project.phases.feasibility.subItems
-                  },
-                  planning: {
-                    id: project.phases.planning.id,
-                    name: project.phases.planning.name,
-                    weight: project.phases.planning.weight,
-                    completion: project.phases.planning.completion,
-                    subItems: project.phases.planning.subItems
-                  },
-                  execution: {
-                    id: project.phases.execution.id,
-                    name: project.phases.execution.name,
-                    weight: project.phases.execution.weight,
-                    completion: project.phases.execution.completion,
-                    subItems: project.phases.execution.subItems
-                  },
-                  close: {
-                    id: project.phases.close.id,
-                    name: project.phases.close.name,
-                    weight: project.phases.close.weight,
-                    completion: project.phases.close.completion,
-                    subItems: project.phases.close.subItems
-                  }
-                }),
-                updated_at: new Date().toISOString(),
-                // Add financial fields
-                ses_number: project.sesNumber,
-                upcoming_milestone: project.upcomingMilestone,
-                financial_notes: project.financialNotes
-              };
-
-              console.log('🔍 About to call Supabase update with:', dbPayload);
+              console.log('Updating project:', project.name);
+              
+              // Get admin settings for status calculation
+              const { adminSettings } = get();
+              const thresholds = adminSettings?.thresholds || { onTrack: 90, atRisk: 80 };
+              
+              // Calculate status based on completion
+              if (project.overallCompletion >= thresholds.onTrack) {
+                project.status = 'On Track';
+              } else if (project.overallCompletion >= thresholds.atRisk) {
+                project.status = 'At Risk';
+              } else {
+                project.status = 'Impacted';
+              }
+              
+              // Recalculate schedule adherence
+              if (calculateScheduleAdherence) {
+                project.scheduleAdherence = calculateScheduleAdherence(project);
+              }
+              
+              const dbData = transformProjectToDb(project);
+              
+              console.log('🔍 About to call Supabase update with:', dbData);
               console.log('🔍 Project ID:', project.id);
-
+              
               const { data, error } = await supabase
                 .from('capex_projects')
-                .update(dbPayload)
-                .eq('id', project.id);
-
+                .update(dbData)
+                .eq('id', project.id)
+                .select();
+              
+              if (error) throw error;
+              
               console.log('🔍 Supabase response - data:', data);
-              console.log('🔍 Supabase response - error:', error);
-
-              if (error) {
-                console.error('🚨 Supabase update failed:', error);
-                throw error;
-              }
-
-              // Update the local store directly with the new values
-              set((state) => {
-                const projectIndex = state.projects.findIndex(p => p.id === project.id);
-                if (projectIndex !== -1) {
-                  state.projects[projectIndex] = {
-                    ...state.projects[projectIndex],
-                    projectName: project.projectName,
-                    projectOwner: project.projectOwner,
-                    projectType: project.projectType,
-                    startDate: project.startDate,
-                    endDate: project.endDate,
-                    totalBudget: project.totalBudget,
-                    totalActual: project.totalActual,
-                    projectStatus: project.projectStatus,
-                    phases: project.phases,
-                    lastUpdated: new Date()
-                  };
-                  console.log('Local store updated');
-                }
-              });
-
+              
+              set((state) => ({
+                projects: state.projects.map((p) => 
+                  p.id === project.id ? project : p
+                ),
+                loading: false
+              }));
+              
+              toast.success('Project updated successfully');
             } catch (error) {
               console.error('Error updating project:', error);
-              throw error;
+              set({ error: (error as Error).message, loading: false });
+              toast.error('Failed to update project');
+            }
+          },
+
+          async createProject(projectData: Omit<CapexProject, 'id'>) {
+            set({ loading: true, error: null });
+            try {
+              const dbData = transformProjectToDb({ ...projectData, id: '' } as CapexProject);
+              
+              const { data, error } = await supabase
+                .from('capex_projects')
+                .insert(dbData)
+                .select()
+                .single();
+              
+              if (error) throw error;
+              
+              const newProject = transformDbToProject(data as CapexProjectDB);
+              
+              set((state) => ({
+                projects: [newProject, ...state.projects],
+                loading: false
+              }));
+              
+              toast.success('Project created successfully');
+            } catch (error) {
+              console.error('Error creating project:', error);
+              set({ error: (error as Error).message, loading: false });
+              toast.error('Failed to create project');
+            }
+          },
+
+          async deleteProject(id: string) {
+            set({ loading: true, error: null });
+            try {
+              const { error } = await supabase
+                .from('capex_projects')
+                .delete()
+                .eq('id', id);
+              
+              if (error) throw error;
+              
+              set((state) => ({
+                projects: state.projects.filter((p) => p.id !== id),
+                loading: false
+              }));
+              
+              toast.success('Project deleted successfully');
+            } catch (error) {
+              console.error('Error deleting project:', error);
+              set({ error: (error as Error).message, loading: false });
+              toast.error('Failed to delete project');
             }
           },
 
           async fetchAdminSettings() {
             try {
-              // Get threshold settings only (not all settings)
               const { data, error } = await supabase
-                .from('capex_system_settings')
-                .select('setting_key, setting_value')
-                .in('setting_key', ['on_track_threshold', 'at_risk_threshold', 'impacted_threshold', 'show_financials']);
-
+                .from('admin_settings')
+                .select('*')
+                .single();
+              
               if (error) throw error;
-
-              // Build admin settings object from multiple rows
-              const adminSettings: AdminSettings = {
+              
+              const settings: AdminSettings = {
                 thresholds: {
-                  onTrack: 90,
-                  atRisk: 80
+                  onTrack: data?.threshold_on_track || 90,
+                  atRisk: data?.threshold_at_risk || 80,
                 },
                 phaseWeights: {
                   complexProject: {
-                    feasibility: 15,
-                    planning: 35,
-                    execution: 45,
-                    close: 5
+                    feasibility: data?.weight_complex_feasibility || 15,
+                    planning: data?.weight_complex_planning || 35,
+                    execution: data?.weight_complex_execution || 45,
+                    close: data?.weight_complex_close || 5,
                   },
                   assetPurchase: {
-                    planning: 45,
-                    execution: 50,
-                    close: 5
-                  }
-                }
+                    planning: data?.weight_asset_planning || 45,
+                    execution: data?.weight_asset_execution || 50,
+                    close: data?.weight_asset_close || 5,
+                  },
+                },
               };
-
-              if (data) {
-                data.forEach(row => {
-                  if (row.setting_key === 'on_track_threshold') {
-                    adminSettings.thresholds.onTrack = row.setting_value;
-                  } else if (row.setting_key === 'at_risk_threshold') {
-                    adminSettings.thresholds.atRisk = row.setting_value;
-                  }
-                });
-              }
-
-              set((state) => {
-                state.adminSettings = adminSettings;
-              });
-              return adminSettings;
+              
+              set({ adminSettings: settings });
             } catch (error) {
               console.error('Error fetching admin settings:', error);
-              return null;
+              toast.error('Failed to fetch admin settings');
             }
           },
 
-          async updateAdminSettings(settings: ExtendedThresholdSettings) {
-            console.log('updateAdminSettings called with:', settings);
-            
+          async updateAdminSettings(settings: AdminSettings) {
             try {
-              // Save each threshold as a separate key-value pair
-              const updates = [
-                {
-                  setting_key: 'on_track_threshold',
-                  setting_value: settings.onTrackThreshold,
-                  updated_at: new Date().toISOString()
-                },
-                {
-                  setting_key: 'at_risk_threshold', 
-                  setting_value: settings.atRiskThreshold,
-                  updated_at: new Date().toISOString()
-                }
-              ];
+              const { error } = await supabase
+                .from('admin_settings')
+                .update({
+                  threshold_on_track: settings.thresholds.onTrack,
+                  threshold_at_risk: settings.thresholds.atRisk,
+                  weight_complex_feasibility: settings.phaseWeights.complexProject.feasibility,
+                  weight_complex_planning: settings.phaseWeights.complexProject.planning,
+                  weight_complex_execution: settings.phaseWeights.complexProject.execution,
+                  weight_complex_close: settings.phaseWeights.complexProject.close,
+                  weight_asset_planning: settings.phaseWeights.assetPurchase.planning,
+                  weight_asset_execution: settings.phaseWeights.assetPurchase.execution,
+                  weight_asset_close: settings.phaseWeights.assetPurchase.close,
+                })
+                .eq('id', 1); // Assuming single row for admin settings
               
-              console.log('Saving threshold updates:', updates);
+              if (error) throw error;
               
-              // Use upsert to insert or update each setting
-              for (const update of updates) {
-                const { data, error } = await supabase
-                  .from('capex_system_settings')
-                  .upsert(update, { 
-                    onConflict: 'setting_key'
-                  })
-                  .select('*');
-                  
-                if (error) {
-                  console.error(`Error saving ${update.setting_key}:`, error);
-                  throw error;
-                }
-                
-                console.log(`Saved ${update.setting_key}:`, data);
-              }
-
-              // Update phase weights
-              const phaseWeightUpdates = [
-                {
-                  setting_key: 'project_phase_weights',
-                  setting_value: settings.projectWeights,
-                  updated_at: new Date().toISOString()
-                },
-                {
-                  setting_key: 'asset_phase_weights',
-                  setting_value: settings.assetWeights,
-                  updated_at: new Date().toISOString()
-                }
-              ];
-
-              for (const update of phaseWeightUpdates) {
-                const { data, error } = await supabase
-                  .from('capex_system_settings')
-                  .upsert(update, { 
-                    onConflict: 'setting_key'
-                  })
-                  .select('*');
-                  
-                if (error) {
-                  console.error(`Error saving ${update.setting_key}:`, error);
-                  throw error;
-                }
-                
-                console.log(`Saved ${update.setting_key}:`, data);
-              }
-              
-              console.log('All settings saved successfully');
-              
+              set({ adminSettings: settings });
+              toast.success('Admin settings updated successfully');
             } catch (error) {
               console.error('Error updating admin settings:', error);
-              throw error;
+              toast.error('Failed to update admin settings');
             }
           },
 
@@ -318,7 +277,7 @@ const useStore = create<CapExStore>()(
             }
           },
 
-          openProjectModal(project: Project) {
+          openProjectModal(project: CapexProject) {
             set((state) => {
               state.modalState = {
                 isOpen: true,
@@ -555,61 +514,62 @@ const transformDbToProject = (record: any): CapexProject => {
   return project;
 };
 
-const transformDbProjectToProject = (dbProject: any): Project => {
-  // Parse phases data from JSON or create default
+// Update the transformDbProjectToProject function to properly map types:
+const transformDbProjectToProject = (dbProject: any): CapexProject => {
+  // Parse phases data if it's a JSON string
   let phases;
-  if (dbProject.phases_data) {
+  if (typeof dbProject.phases_data === 'string') {
     try {
       const parsedPhases = JSON.parse(dbProject.phases_data);
       phases = {
         feasibility: {
-          id: parsedPhases.feasibility?.id || 'feasibility',
-          name: parsedPhases.feasibility?.name || 'Feasibility',
+          id: 'feasibility',
+          name: 'Feasibility',
           weight: parsedPhases.feasibility?.weight || 15,
           completion: parsedPhases.feasibility?.completion || 0,
-          subItems: {
-            riskAssessment: parsedPhases.feasibility?.subItems?.riskAssessment || { name: 'Risk Assessment', value: 0, isNA: false },
-            projectCharter: parsedPhases.feasibility?.subItems?.projectCharter || { name: 'Project Charter', value: 0, isNA: false }
+          subItems: parsedPhases.feasibility?.subItems || {
+            riskAssessment: { name: 'Risk Assessment', value: 0, isNA: false },
+            projectCharter: { name: 'Project Charter', value: 0, isNA: false }
           }
         },
         planning: {
-          id: parsedPhases.planning?.id || 'planning',
-          name: parsedPhases.planning?.name || 'Planning',
+          id: 'planning',
+          name: 'Planning',
           weight: parsedPhases.planning?.weight || 35,
           completion: parsedPhases.planning?.completion || 0,
-          subItems: {
-            rfqPackage: parsedPhases.planning?.subItems?.rfqPackage || { name: 'RFQ Package', value: 0, isNA: false },
-            validationStrategy: parsedPhases.planning?.subItems?.validationStrategy || { name: 'Validation Strategy', value: 0, isNA: false },
-            financialForecast: parsedPhases.planning?.subItems?.financialForecast || { name: 'Financial Forecast', value: 0, isNA: false },
-            vendorSolicitation: parsedPhases.planning?.subItems?.vendorSolicitation || { name: 'Vendor Solicitation', value: 0, isNA: false },
-            ganttChart: parsedPhases.planning?.subItems?.ganttChart || { name: 'Gantt Chart', value: 0, isNA: false },
-            sesAssetNumberApproval: parsedPhases.planning?.subItems?.sesAssetNumberApproval || { name: 'SES Asset Number Approval', value: 0, isNA: false }
+          subItems: parsedPhases.planning?.subItems || {
+            rfqPackage: { name: 'RFQ Package', value: 0, isNA: false },
+            validationStrategy: { name: 'Validation Strategy', value: 0, isNA: false },
+            financialForecast: { name: 'Financial Forecast', value: 0, isNA: false },
+            vendorSolicitation: { name: 'Vendor Solicitation', value: 0, isNA: false },
+            ganttChart: { name: 'Gantt Chart', value: 0, isNA: false },
+            sesAssetNumberApproval: { name: 'SES/Asset# Approval', value: 0, isNA: false }
           }
         },
         execution: {
-          id: parsedPhases.execution?.id || 'execution',
-          name: parsedPhases.execution?.name || 'Execution',
+          id: 'execution',
+          name: 'Execution',
           weight: parsedPhases.execution?.weight || 45,
           completion: parsedPhases.execution?.completion || 0,
-          subItems: {
-            poSubmission: parsedPhases.execution?.subItems?.poSubmission || { name: 'PO Submission', value: 0, isNA: false },
-            equipmentDesign: parsedPhases.execution?.subItems?.equipmentDesign || { name: 'Equipment Design', value: 0, isNA: false },
-            equipmentBuild: parsedPhases.execution?.subItems?.equipmentBuild || { name: 'Equipment Build', value: 0, isNA: false },
-            projectDocumentation: parsedPhases.execution?.subItems?.projectDocumentation || { name: 'Project Documentation/SOP', value: 0, isNA: false },
-            demoInstall: parsedPhases.execution?.subItems?.demoInstall || { name: 'Demo/Install', value: 0, isNA: false },
-            validation: parsedPhases.execution?.subItems?.validation || { name: 'Validation', value: 0, isNA: false },
-            equipmentTurnover: parsedPhases.execution?.subItems?.equipmentTurnover || { name: 'Equipment Turnover/Training', value: 0, isNA: false },
-            goLive: parsedPhases.execution?.subItems?.goLive || { name: 'Go-Live', value: 0, isNA: false }
+          subItems: parsedPhases.execution?.subItems || {
+            poSubmission: { name: 'PO Submission', value: 0, isNA: false },
+            equipmentDesign: { name: 'Equipment Design', value: 0, isNA: false },
+            equipmentBuild: { name: 'Equipment Build', value: 0, isNA: false },
+            projectDocumentation: { name: 'Project Documentation', value: 0, isNA: false },
+            demoInstall: { name: 'Demo/Install', value: 0, isNA: false },
+            validation: { name: 'Validation', value: 0, isNA: false },
+            equipmentTurnover: { name: 'Equipment Turnover', value: 0, isNA: false },
+            goLive: { name: 'Go Live', value: 0, isNA: false }
           }
         },
         close: {
-          id: parsedPhases.close?.id || 'close',
-          name: parsedPhases.close?.name || 'Close',
+          id: 'close',
+          name: 'Close',
           weight: parsedPhases.close?.weight || 5,
           completion: parsedPhases.close?.completion || 0,
-          subItems: {
-            poClosure: parsedPhases.close?.subItems?.poClosure || { name: 'PO Closure', value: 0, isNA: false },
-            projectTurnover: parsedPhases.close?.subItems?.projectTurnover || { name: 'Project Turnover', value: 0, isNA: false }
+          subItems: parsedPhases.close?.subItems || {
+            poClosure: { name: 'PO Closure', value: 0, isNA: false },
+            projectTurnover: { name: 'Project Turnover', value: 0, isNA: false }
           }
         }
       };
@@ -617,9 +577,54 @@ const transformDbProjectToProject = (dbProject: any): Project => {
       console.warn('Failed to parse phases_data for project:', dbProject.project_name, error);
       phases = createDefaultPhases();
     }
+  } else if (dbProject.phases_data && typeof dbProject.phases_data === 'object') {
+    phases = dbProject.phases_data;
   } else {
     phases = createDefaultPhases();
   }
+
+  // Map database project type to UI project type
+  const mapDatabaseProjectType = (dbType: string): ProjectType => {
+    console.log('🔍 Mapping database project type:', dbType);
+    
+    // Handle database values
+    if (dbType === 'projects' || dbType === 'Projects') {
+      return {
+        id: 'projects',
+        name: 'Complex Project',
+        phaseWeights: {
+          feasibility: 15,
+          planning: 35,
+          execution: 45,
+          close: 5
+        }
+      };
+    } else if (dbType === 'asset_purchases' || dbType === 'Asset Purchases') {
+      return {
+        id: 'asset_purchases',
+        name: 'Asset Purchase',
+        phaseWeights: {
+          feasibility: 0,
+          planning: 45,
+          execution: 50,
+          close: 5
+        }
+      };
+    }
+    
+    // Default fallback
+    console.warn('⚠️ Unknown project type:', dbType, 'defaulting to Complex Project');
+    return {
+      id: 'projects',
+      name: 'Complex Project',
+      phaseWeights: {
+        feasibility: 15,
+        planning: 35,
+        execution: 45,
+        close: 5
+      }
+    };
+  };
 
   // Calculate overall completion from phases
   const overallCompletion = calculateOverallCompletion(phases);
@@ -628,9 +633,9 @@ const transformDbProjectToProject = (dbProject: any): Project => {
     id: dbProject.id,
     projectName: dbProject.project_name || '',
     projectOwner: dbProject.project_owner || '',
-    startDate: dbProject.start_date || new Date().toISOString(),
-    endDate: dbProject.end_date || new Date().toISOString(),
-    projectType: Object.values(PROJECT_TYPES).find(t => t.name.toLowerCase().replace(' ', '_') === dbProject.project_type) || Object.values(PROJECT_TYPES)[0],
+    startDate: dbProject.start_date ? new Date(dbProject.start_date) : new Date(),
+    endDate: dbProject.end_date ? new Date(dbProject.end_date) : new Date(),
+    projectType: mapDatabaseProjectType(dbProject.project_type), // USE THE MAPPING HERE
     totalBudget: Number(dbProject.total_budget) || 0,
     totalActual: Number(dbProject.total_actual) || 0,
     projectStatus: dbProject.project_status || 'On Track',
@@ -641,7 +646,7 @@ const transformDbProjectToProject = (dbProject: any): Project => {
     // Additional fields for CapexProject compatibility
     name: dbProject.project_name || '',
     owner: dbProject.project_owner || '',
-    type: dbProject.project_type || 'project',
+    type: mapDatabaseProjectType(dbProject.project_type).name, // This will be "Complex Project" or "Asset Purchase"
     status: (dbProject.project_status || 'On Track').toLowerCase().replace(' ', '-'),
     budget: Number(dbProject.total_budget) || 0,
     spent: Number(dbProject.total_actual) || 0,
@@ -651,12 +656,175 @@ const transformDbProjectToProject = (dbProject: any): Project => {
     // Financial fields
     sesNumber: dbProject.ses_number || '',
     financialNotes: dbProject.financial_notes || '',
+    upcomingMilestone: dbProject.upcoming_milestone || '',
     milestones: {
       feasibility: dbProject.feasibility_milestone || '',
       planning: dbProject.planning_milestone || '',
       execution: dbProject.execution_milestone || '',
       close: dbProject.close_milestone || ''
     }
+  };
+};
+
+// Helper function to convert CapexProject to Project
+const convertCapexToProject = (capexProject: CapexProject): CapexProject => {
+  return {
+    id: capexProject.id,
+    projectName: capexProject.name,
+    projectOwner: capexProject.owner,
+    startDate: new Date(),
+    endDate: new Date(),
+    projectType: {
+      id: capexProject.type === 'Complex Project' ? 'projects' : 'asset_purchases',
+      name: capexProject.type,
+      phaseWeights: {
+        feasibility: capexProject.type === 'Complex Project' ? 15 : 0,
+        planning: capexProject.type === 'Complex Project' ? 35 : 45,
+        execution: capexProject.type === 'Complex Project' ? 45 : 50,
+        close: 5
+      }
+    },
+    totalBudget: capexProject.budget,
+    totalActual: capexProject.spent,
+    projectStatus: capexProject.status,
+    phases: {
+      feasibility: {
+        id: 'feasibility',
+        name: 'Feasibility',
+        weight: capexProject.type === 'Complex Project' ? 15 : 0,
+        completion: capexProject.phases?.feasibility?.completion || 0,
+        subItems: {
+          riskAssessment: {
+            name: 'Risk Assessment',
+            value: 0,
+            isNA: false
+          },
+          projectCharter: {
+            name: 'Project Charter',
+            value: 0,
+            isNA: false
+          }
+        }
+      },
+      planning: {
+        id: 'planning',
+        name: 'Planning',
+        weight: capexProject.type === 'Complex Project' ? 35 : 45,
+        completion: capexProject.phases?.planning?.completion || 0,
+        subItems: {
+          rfqPackage: {
+            name: 'RFQ Package',
+            value: 0,
+            isNA: false
+          },
+          validationStrategy: {
+            name: 'Validation Strategy',
+            value: 0,
+            isNA: false
+          },
+          financialForecast: {
+            name: 'Financial Forecast',
+            value: 0,
+            isNA: false
+          },
+          vendorSolicitation: {
+            name: 'Vendor Solicitation',
+            value: 0,
+            isNA: false
+          },
+          ganttChart: {
+            name: 'Gantt Chart',
+            value: 0,
+            isNA: false
+          },
+          sesAssetNumberApproval: {
+            name: 'SES Asset Number Approval',
+            value: 0,
+            isNA: false
+          }
+        }
+      },
+      execution: {
+        id: 'execution',
+        name: 'Execution',
+        weight: capexProject.type === 'Complex Project' ? 45 : 50,
+        completion: capexProject.phases?.execution?.completion || 0,
+        subItems: {
+          poSubmission: {
+            name: 'PO Submission',
+            value: 0,
+            isNA: false
+          },
+          equipmentDesign: {
+            name: 'Equipment Design',
+            value: 0,
+            isNA: false
+          },
+          equipmentBuild: {
+            name: 'Equipment Build',
+            value: 0,
+            isNA: false
+          },
+          projectDocumentation: {
+            name: 'Project Documentation',
+            value: 0,
+            isNA: false
+          },
+          demoInstall: {
+            name: 'Demo/Install',
+            value: 0,
+            isNA: false
+          },
+          validation: {
+            name: 'Validation',
+            value: 0,
+            isNA: false
+          },
+          equipmentTurnover: {
+            name: 'Equipment Turnover',
+            value: 0,
+            isNA: false
+          },
+          goLive: {
+            name: 'Go-Live',
+            value: 0,
+            isNA: false
+          }
+        }
+      },
+      close: {
+        id: 'close',
+        name: 'Close',
+        weight: 5,
+        completion: capexProject.phases?.close?.completion || 0,
+        subItems: {
+          poClosure: {
+            name: 'PO Closure',
+            value: 0,
+            isNA: false
+          },
+          projectTurnover: {
+            name: 'Project Turnover',
+            value: 0,
+            isNA: false
+          }
+        }
+      }
+    },
+    lastUpdated: new Date(),
+    sesNumber: capexProject.sesNumber,
+    upcomingMilestone: capexProject.upcomingMilestone,
+    financialNotes: capexProject.financialNotes,
+    
+    // Additional fields for CapexProject compatibility
+    name: capexProject.name,
+    owner: capexProject.owner,
+    type: capexProject.type,
+    status: capexProject.status,
+    budget: capexProject.budget,
+    spent: capexProject.spent,
+    overallCompletion: capexProject.overallCompletion,
+    timeline: capexProject.timeline
   };
 };
 

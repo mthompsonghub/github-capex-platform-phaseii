@@ -15,7 +15,7 @@ import {
   Switch,
   FormControlLabel
 } from '@mui/material';
-import { CapExRecord, Phase, SubItem } from '../../types/capex';
+import { CapExRecord, Phase, SubItem } from '../../types/capex-unified';
 
 interface ProjectEditFormProps {
   project: CapExRecord;

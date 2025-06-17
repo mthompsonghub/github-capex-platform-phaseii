@@ -19,7 +19,7 @@ import {
   CalendarToday as CalendarIcon,
   AttachMoney as MoneyIcon,
 } from '@mui/icons-material';
-import { CapexProject } from '../../types/capex';
+import { CapexProject } from '../../types/capex-unified';
 import { useCapExStore } from '../../stores/capexStore';
 import { convertToProject } from './utils/projectUtils';
 

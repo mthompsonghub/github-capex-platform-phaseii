@@ -11,7 +11,7 @@ import {
   Project,
   calculateOverallCompletionForBoth
 } from './data/capexData';
-import { CapExRecord } from '../../types/capex';
+import { CapExRecord } from '../../types/capex-unified';
 import { useCapExStore } from '../../stores/capexStore';
 import toast from 'react-hot-toast';
 

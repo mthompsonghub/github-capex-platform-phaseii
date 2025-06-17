@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useCapExStore } from '../../stores/capexStore';
 import { Project } from './data/capexData';
-import { CapExRecord } from '../../types/capex';
+import { CapExRecord } from '../../types/capex-unified';
 import {
   Dialog,
   DialogTitle,

@@ -32,7 +32,7 @@ import {
 } from '@mui/material';
 import { X as CloseIcon, Lock as LockIcon, AlertTriangle } from 'lucide-react';
 import { Project, PhaseProgress, calculatePhaseCompletion, calculateOverallCompletion, determineProjectStatus } from './data/capexData';
-import { CapExRecord, Phase } from '../../types/capex';
+import { CapExRecord, Phase } from '../../types/capex-unified';
 import { convertProjectToCapExRecord, convertCapExRecordToProject } from '../../utils/projectUtils';
 import { roles } from '../../lib/supabase';
 import toast from 'react-hot-toast';

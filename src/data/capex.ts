@@ -1,4 +1,4 @@
-import { CapExRecord, ProjectOwner } from '../types/capex';
+import { CapExRecord, ProjectOwner } from '../types/capex-unified';
 
 export const PROJECT_OWNERS: ProjectOwner[] = [
   { id: 'tb', name: 'T. Bolt', initials: 'TB' },

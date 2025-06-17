@@ -1,7 +1,7 @@
 import React from 'react';
 import { Table } from '../common/Table';
 import { columnGroups } from './table/config';
-import { CapExRecord } from '../../types/capex';
+import { CapExRecord } from '../../types/capex-unified';
 import { TableColumnGroup } from '../../types/table';
 import { Loader2 } from 'lucide-react';
 

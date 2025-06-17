@@ -1,5 +1,5 @@
 import React from 'react';
-import { CapExRecord } from '../../types/capex';
+import { CapExRecord } from '../../types/capex-unified';
 import { FileText, Package, Boxes } from 'lucide-react';
 
 interface CapExSummaryCardsProps {

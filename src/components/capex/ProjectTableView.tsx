@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Table,
   TableBody,
@@ -14,18 +14,20 @@ import {
   IconButton,
   Collapse,
   Button,
+  Menu,
+  MenuItem,
 } from '@mui/material';
 import {
   KeyboardArrowDown as ExpandIcon,
   KeyboardArrowUp as CollapseIcon,
   MoreVert as MoreIcon,
 } from '@mui/icons-material';
-import { CapexProject } from '../../types/capex';
+import { CapexProject } from '../../types/capex-unified';
 
 interface ProjectTableViewProps {
   projects: CapexProject[];
   showFinancials: boolean;
-  onProjectClick: (project: CapexProject) => void;
+  onProjectClick?: (project: CapexProject) => void;
 }
 
 interface GroupedProjects {
@@ -38,6 +40,10 @@ export function ProjectTableView({ projects, showFinancials, onProjectClick }: P
     complexProjects: true,
     assetPurchases: true,
   });
+
+  // Add state for the menu
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   // Group projects by type
   const groupedProjects: GroupedProjects = projects.reduce(
@@ -86,6 +92,17 @@ export function ProjectTableView({ projects, showFinancials, onProjectClick }: P
     return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   };
 
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, projectId: string) => {
+    event.stopPropagation(); // Prevent row click
+    setAnchorEl(event.currentTarget);
+    setSelectedProjectId(projectId);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedProjectId(null);
+  };
+
   const renderProjectGroup = (title: string, projects: CapexProject[], groupKey: string) => {
     const isExpanded = expandedGroups[groupKey];
 
@@ -130,6 +147,7 @@ export function ProjectTableView({ projects, showFinancials, onProjectClick }: P
                     </>
                   )}
                   <TableCell sx={{ fontWeight: 600, width: '10%' }}>Timeline</TableCell>
+                  <TableCell sx={{ fontWeight: 600, width: '10%' }}>Milestone</TableCell>
                   <TableCell sx={{ fontWeight: 600, width: '5%' }} align="center"></TableCell>
                 </TableRow>
               </TableHead>
@@ -138,22 +156,44 @@ export function ProjectTableView({ projects, showFinancials, onProjectClick }: P
                   <TableRow
                     key={project.id}
                     hover
-                    onClick={() => onProjectClick(project)}
-                    sx={{
+                    sx={{ 
                       cursor: 'pointer',
                       '&:hover': {
-                        backgroundColor: 'grey.50',
-                      },
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
+                    onClick={() => {
+                      if (onProjectClick) {
+                        onProjectClick(project);
+                      }
                     }}
                   >
                     <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                        {project.name}
-                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {project.type === 'Complex Project' ? (
+                          <Chip 
+                            label="Project" 
+                            color="primary" 
+                            size="small"
+                          />
+                        ) : (
+                          <Chip 
+                            label="Asset" 
+                            color="secondary" 
+                            size="small"
+                          />
+                        )}
+                        <Typography variant="body2">{project.name}</Typography>
+                      </Box>
                     </TableCell>
+                    <TableCell>{project.owner}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {project.owner}
+                      {project.feasibilityStartDate ? new Date(project.feasibilityStartDate).toLocaleDateString() : '-'}
+                    </TableCell>
+                    <TableCell>{project.timeline || '-'}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {project.upcomingMilestone || 'Not set'}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
@@ -238,7 +278,10 @@ export function ProjectTableView({ projects, showFinancials, onProjectClick }: P
                       </Typography>
                     </TableCell>
                     <TableCell align="center" onClick={(e) => e.stopPropagation()}>
-                      <IconButton size="small">
+                      <IconButton 
+                        size="small"
+                        onClick={(e) => handleMenuOpen(e, project.id)}
+                      >
                         <MoreIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
@@ -265,6 +308,40 @@ export function ProjectTableView({ projects, showFinancials, onProjectClick }: P
           Asset Purchases: {groupedProjects.assetPurchases.length}
         </Typography>
       </Box>
+
+      {/* Add the Menu component after the table */}
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleMenuClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'right',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'right',
+        }}
+      >
+        <MenuItem onClick={() => {
+          handleMenuClose();
+          // Handle view details
+        }}>
+          View Details
+        </MenuItem>
+        <MenuItem onClick={() => {
+          handleMenuClose();
+          // Handle export
+        }}>
+          Export Data
+        </MenuItem>
+        <MenuItem onClick={() => {
+          handleMenuClose();
+          // Handle archive
+        }}>
+          Archive Project
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { twMerge } from 'tailwind-merge';
-import { ProjectStatus, StatusPercentage, STATUS_PERCENTAGES } from '../../types/capex';
+import { ProjectStatus, StatusPercentage, STATUS_PERCENTAGES } from '../../types/capex-unified';
 import { Trash2 } from 'lucide-react';
 
 interface EditableCellProps {
